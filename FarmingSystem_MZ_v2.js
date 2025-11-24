@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v1.0.0 - Implements a persistent, tile-based farming system with tilling, watering, and crop growth cycles.
+ * @plugindesc v2.0.0 - Implements a persistent, tile-based farming system with detailed state visuals (watered/dry/dead).
  * @author OuttieTV
  *
  * @param General Settings
@@ -13,55 +13,46 @@
  * @default 10
  * @desc Region ID that marks tiles that can be tilled (untilled farmland).
  *
- * @param TilledTileId
+ * @param UntilledFarmlandTileId
+ * @parent General Settings
+ * @type number
+ * @min 0
+ * @default 0
+ * @desc Tile ID (A-Layer) for UNTILLED farmland (visual for untouched soil).
+ *
+ * @param TilledUnseededUnwateredTileId
  * @parent General Settings
  * @type number
  * @min 0
  * @default 2816
- * @desc Tile ID (A-Layer) used for Tilled Farmland (needs to be configured in your Tileset).
+ * @desc Tile ID (A-Layer) for Tilled (unseeded, unwatered) Farmland.
+ *
+ * @param TilledUnseededWateredTileId
+ * @parent General Settings
+ * @type number
+ * @min 0
+ * @default 2817
+ * @desc Tile ID (A-Layer) for Tilled (unseeded, watered) Farmland.
  *
  * @param Crops
  * @type struct<Crop>[]
  * @desc List of all definable crops the player can plant.
- * @default ["{\"CropId\":\"Wheat\",\"SeedItemId\":\"10\",\"Stage2Day\":\"3\",\"Stage3Day\":\"6\",\"MaxDryDays\":\"2\",\"Stage2TileId\":\"2817\",\"Stage3TileId\":\"2818\",\"HarvestItemId\":\"20\"}","{\"CropId\":\"Corn\",\"SeedItemId\":\"11\",\"Stage2Day\":\"4\",\"Stage3Day\":\"8\",\"MaxDryDays\":\"3\",\"Stage2TileId\":\"2819\",\"Stage3TileId\":\"2820\",\"HarvestItemId\":\"21\"}"]
+ * @default ["{\"CropId\":\"Wheat\",\"SeedItemId\":\"10\",\"Stage2Day\":\"3\",\"Stage3Day\":\"6\",\"MaxDryDays\":\"2\",\"Stage1UnwateredTileId\":\"2820\",\"Stage1WateredTileId\":\"2821\",\"Stage2UnwateredTileId\":\"2822\",\"Stage2WateredTileId\":\"2823\",\"Stage2DryTileId\":\"2824\",\"Stage3TileId\":\"2825\",\"DeadCropTileId\":\"2826\",\"HarvestItemId\":\"20\"}","{\"CropId\":\"Corn\",\"SeedItemId\":\"11\",\"Stage2Day\":\"4\",\"Stage3Day\":\"8\",\"MaxDryDays\":\"3\",\"Stage1UnwateredTileId\":\"2830\",\"Stage1WateredTileId\":\"2831\",\"Stage2UnwateredTileId\":\"2832\",\"Stage2WateredTileId\":\"2833\",\"Stage2DryTileId\":\"2834\",\"Stage3TileId\":\"2835\",\"DeadCropTileId\":\"2836\",\"HarvestItemId\":\"21\"}"]
  *
  * @help
  * ----------------------------------------------------------------------
  * PLUGIN COMMANDS (Use in Events)
  * ----------------------------------------------------------------------
  *
- * All commands operate on the tile directly beneath the player.
- *
  * FarmAction Till
- * - Attempts to till the current tile. Tile must be designated as Farmland
- * (Region ID set in parameters) and currently Untilled.
- *
- * FarmAction Plant
- * - Attempts to plant a crop. Tile must be Tilled. Requires the seed item
- * to be in the player's inventory. Specify the CropId from parameters.
- * - Example: FarmAction Plant "Wheat"
- *
+ * FarmAction Plant [CropId] (e.g., FarmAction Plant "Wheat")
  * FarmAction Water
- * - Waters the crop on the current tile. Resets the dry-day counter for the crop.
- *
  * FarmAction Harvest
- * - Attempts to harvest the crop. Crop must be Fully Grown (Stage 3).
- * Adds the Harvest Item to the inventory and reverts the tile to Tilled.
  *
- * ----------------------------------------------------------------------
- * USAGE & MECHANICS
- * ----------------------------------------------------------------------
- * 1. Farmland must be marked with the FarmlandRegionId.
- * 2. Player must use 'FarmAction Till' on the farmland.
- * 3. Player must use 'FarmAction Plant [CropId]' on the tilled tile.
- * 4. Crop must be watered daily using 'FarmAction Water'.
- * 5. Growth is automatically handled at the start of each new in-game day.
- * 6. Unwatered crops will die after MaxDryDays.
- * 7. Fully grown crops can be harvested with 'FarmAction Harvest'.
- *
- * IMPORTANT NOTE: This plugin hooks into Game Variable 4 to detect day change.
- * Ensure your clock plugin (like GameTime_MZ_v1.js) is running and setting
- * the in-game day number into Variable 4.
+ * NOTE ON VISUALS: This plugin relies on a third-party tile control plugin 
+ * (like Tyruswoo_TileControl.js) to dynamically change map tile graphics 
+ * at runtime. The logic below determines the correct Tile ID but requires 
+ * a function call to update the map's visual layer.
  *
  */
 /*~struct~Crop:
@@ -76,39 +67,66 @@
  * @desc The Item ID required to plant this crop.
  *
  * @param Stage2Day
- * @text Days to Stage 2
+ * @text Days to Stage 2 (Partial Growth)
  * @type number
  * @min 1
  * @default 3
- * @desc Days required to reach the partially grown stage.
  *
  * @param Stage3Day
  * @text Days to Stage 3 (Fully Grown)
  * @type number
  * @min 1
  * @default 6
- * @desc Days required to reach the fully grown (harvestable) stage.
  *
  * @param MaxDryDays
- * @text Max Dry Days
+ * @text Max Dry Days Before Death
  * @type number
  * @min 1
  * @default 2
- * @desc Number of consecutive days without water before the crop dies.
  *
- * @param Stage2TileId
- * @text Stage 2 Tile ID
+ * @param Stage1UnwateredTileId
+ * @text Stage 1 (Seeded, Unwatered) Tile ID
  * @type number
  * @min 0
- * @default 2817
- * @desc Tile ID (A-Layer) for the partially grown stage graphic.
+ * @default 2820
+ *
+ * @param Stage1WateredTileId
+ * @text Stage 1 (Seeded, Watered) Tile ID
+ * @type number
+ * @min 0
+ * @default 2821
+ *
+ * @param Stage2UnwateredTileId
+ * @text Stage 2 (Unwatered) Tile ID
+ * @type number
+ * @min 0
+ * @default 2822
+ *
+ * @param Stage2WateredTileId
+ * @text Stage 2 (Watered) Tile ID
+ * @type number
+ * @min 0
+ * @default 2823
+ *
+ * @param Stage2DryTileId
+ * @text Stage 2 (Dry/Stressed) Tile ID
+ * @type number
+ * @min 0
+ * @default 2824
+ * @desc Used when dryDays > 0 but crop is not dead yet.
  *
  * @param Stage3TileId
- * @text Stage 3 Tile ID
+ * @text Stage 3 (Fully Grown) Tile ID
  * @type number
  * @min 0
- * @default 2818
- * @desc Tile ID (A-Layer) for the fully grown (harvestable) stage graphic.
+ * @default 2825
+ * @desc Fully grown and harvestable. Cannot be watered.
+ *
+ * @param DeadCropTileId
+ * @text Dead Crop (Stage 4) Tile ID
+ * @type number
+ * @min 0
+ * @default 2826
  *
  * @param HarvestItemId
  * @text Harvest Item ID
@@ -124,8 +142,10 @@
 
     const parameters = PluginManager.parameters(PLUGIN_NAME);
     const FarmlandRegionId = Number(parameters.FarmlandRegionId || 10);
-    const TilledTileId = Number(parameters.TilledTileId || 2816);
-
+	const UntilledFarmlandTileId = Number(parameters.UntilledFarmlandTileId || 0);
+    const TilledUnseededUnwateredTileId = Number(parameters.TilledUnseededUnwateredTileId || 2816);
+    const TilledUnseededWateredTileId = Number(parameters.TilledUnseededWateredTileId || 2817);
+    
     // Map crop parameter array into an easily searchable object
     const CropDefinitions = {};
     const cropParams = JSON.parse(parameters.Crops || "[]");
@@ -137,15 +157,22 @@
             stage2Day: Number(data.Stage2Day),
             stage3Day: Number(data.Stage3Day),
             maxDryDays: Number(data.MaxDryDays),
-            stage2Tile: Number(data.Stage2TileId),
+            // Stage 1 (Seeded)
+            stage1UnwateredTile: Number(data.Stage1UnwateredTileId),
+            stage1WateredTile: Number(data.Stage1WateredTileId),
+            // Stage 2 (Partial Growth)
+            stage2UnwateredTile: Number(data.Stage2UnwateredTileId),
+            stage2WateredTile: Number(data.Stage2WateredTileId),
+            stage2DryTile: Number(data.Stage2DryTileId),
+            // Stage 3 (Fully Grown)
             stage3Tile: Number(data.Stage3TileId),
+            // Dead
+            deadTile: Number(data.DeadCropTileId),
             harvestId: Number(data.HarvestItemId)
         };
     }
 
     // --- 2. Map Data Management and Storage Hook ---
-    // Farming data is stored on $gameMap and persisted across saves/loads.
-
     class FarmManager {
         // Initializes farm data for the current map
         static setupMapData() {
@@ -156,7 +183,8 @@
                 $gameMap._farmData[this.getMapKey()] = {};
             }
             if (!$gameMap._lastDay) {
-                $gameMap._lastDay = $gameVariables.value(4) || 1; // Track the last day growth occurred
+                // Ensure initial day is set when game starts/loads
+                $gameMap._lastDay = $gameVariables.value(4) || 1; 
             }
         }
 
@@ -188,67 +216,88 @@
 
         // Replaces the tile graphic at (x, y) with the appropriate crop stage or tilled soil
         static updateTileGraphic(x, y, cropData) {
-            // This function fakes the tile change by swapping the underlying event graphic.
-            // A more complex system might require using an image on a parallel event, but
-            // for simple tile swapping, we directly manipulate the map's display.
-            
-            // NOTE: RPG Maker MZ does not have a native way to change the *tile ID*
-            // of the map itself at runtime without external plugins or heavy hacks.
-            // For a simple visual change, we use a region-locked event that changes
-            // its graphic, or we rely on a custom TileMap plugin. 
-            // Since this request is about functionality, we'll log the tile change
-            // and rely on the underlying system's ability to render custom tiles 
-            // based on the stored data.
-            
-            let tileId = 0; // The tile ID to visually represent the current state
+			let tileId = 0;
+			const def = cropData ? CropDefinitions[cropData.cropId] : null;
 
-            if (!cropData || cropData.state === 'tilled') {
-                // If the state is tilled (or null), use the TilledTileId
-                tileId = TilledTileId;
-            } else if (cropData.state === 'planted') {
-                const def = CropDefinitions[cropData.cropId];
-                if (!def) return; // Unknown crop
+			// If farmland is cleared (null), restore original tile (do nothing)
+			if (cropData === null) {
+				// farmland but UNTILLED → draw untilled tile
+				if (this.isFarmland(x, y) && UntilledFarmlandTileId > 0) {
+					const args = {
+						coordX: String(x),
+						coordY: String(y),
+						layerZ: "0",
+						tileId: String(UntilledFarmlandTileId)
+					};
+					if ($gameMap.changeTile) $gameMap.changeTile(args);
+				}
+				return;
+			}
 
-                if (cropData.age >= def.stage3Day) {
-                    tileId = def.stage3Tile; // Fully grown
-                } else if (cropData.age >= def.stage2Day) {
-                    tileId = def.stage2Tile; // Partially grown
-                } else {
-                    tileId = TilledTileId; // Newly planted/Stage 1
-                }
-            }
-            
-            // To actually change the tile visually, you would typically use an event
-            // with a custom graphic or a dedicated tile-change plugin.
-            // For now, we only ensure the map refreshes, assuming a layer system can read
-            // $gameMap._farmData.
-            $gameMap.refresh();
-            // In a real plugin, you would call a function here to draw the tileId at (x,y).
-            // Example of a hypothetical visual update function:
-            // $gameMap.setLayerATile(x, y, tileId);
-        }
+			// Determine tileId from crop state
+			if (cropData.state === 'tilled') {
+				tileId = cropData.wateredToday
+					? TilledUnseededWateredTileId
+					: TilledUnseededUnwateredTileId;
+			}
+			else if (cropData.state === 'planted' && def) {
+				const age = cropData.age;
+				const dryDays = cropData.dryDays;
+				const watered = cropData.wateredToday;
+
+				if (dryDays >= def.maxDryDays) {
+					tileId = def.deadTile;
+				}
+				else if (age >= def.stage3Day) {
+					tileId = def.stage3Tile;
+				}
+				else if (age >= def.stage2Day) {
+					if (watered)       tileId = def.stage2WateredTile;
+					else if (dryDays)  tileId = def.stage2DryTile;
+					else               tileId = def.stage2UnwateredTile;
+				}
+				else {
+					tileId = watered ? def.stage1WateredTile : def.stage1UnwateredTile;
+				}
+			}
+
+			// --- USE SHAZ TILE CHANGER ---
+			// layerZ = 0 = ground A-layer (correct for farmland tiles)
+			const args = {
+				coordX: String(x),
+				coordY: String(y),
+				layerZ: "0",
+				tileId: String(tileId)
+			};
+
+			if ($gameMap.changeTile) {
+				$gameMap.changeTile(args);
+			}
+		}
 
         // --- 4. Farmland State Checks ---
 
-        // Checks if the tile at (x, y) is defined as farmland by the region ID
         static isFarmland(x, y) {
             return $gameMap.regionId(x, y) === FarmlandRegionId;
         }
 
-        // Checks if the tile is Tilled (ready for planting)
         static isTilled(x, y) {
             const cropData = this.getCropData(x, y);
-            // We define Tilled as having no crop, but the underlying tile/region is farmland.
-            return this.isFarmland(x, y) && (cropData === null || cropData.state === 'tilled');
+            // Must be farmland and either empty or explicitly tilled state
+            return this.isFarmland(x, y) && cropData && cropData.state === 'tilled';
         }
 
-        // Checks if the tile has a planted crop
         static hasCrop(x, y) {
             const cropData = this.getCropData(x, y);
             return cropData && cropData.state === 'planted';
         }
 
-        // Checks if the crop is fully grown
+        static isDead(cropData) {
+            if (!cropData || cropData.state !== 'planted') return false;
+            const def = CropDefinitions[cropData.cropId];
+            return def && cropData.dryDays >= def.maxDryDays;
+        }
+        
         static isFullyGrown(cropData) {
             if (!cropData || cropData.state !== 'planted') return false;
             const def = CropDefinitions[cropData.cropId];
@@ -271,8 +320,8 @@
                  return false;
             }
 
-            // Set state to tilled (empty crop object, state=tilled)
-            this.setCropData(x, y, { state: 'tilled' });
+            // Set state to tilled (unseeded, unwatered)
+            this.setCropData(x, y, { state: 'tilled', wateredToday: false });
             $gameMessage.add("Tilled the soil.");
             return true;
         }
@@ -292,14 +341,14 @@
                 return false;
             }
 
-            // Remove item and plant
+            // Remove item and plant. Planting automatically "waters" for day 0.
             $gameParty.loseItem($dataItems[def.seedId], 1);
             this.setCropData(x, y, {
                 state: 'planted',
                 cropId: cropId,
                 age: 0,
                 dryDays: 0,
-                wateredToday: true, // Auto-watered on planting day
+                wateredToday: true,
                 lastDay: $gameVariables.value(4)
             });
             $gameMessage.add(`Planted a ${def.id} seed.`);
@@ -308,11 +357,25 @@
 
         static water(x, y) {
             const cropData = this.getCropData(x, y);
-            if (!cropData || cropData.state !== 'planted') {
+            
+            if (!this.hasCrop(x, y)) {
+                // Allows watering tilled but unseeded soil
+                if (this.isTilled(x, y)) {
+                    cropData.wateredToday = true;
+                    this.setCropData(x, y, cropData);
+                    $gameMessage.add("Tilled soil watered.");
+                    return true;
+                }
                 $gameMessage.add("There is nothing planted here to water.");
                 return false;
             }
 
+            if (this.isFullyGrown(cropData)) {
+                $gameMessage.add("The crop is fully grown and does not need water.");
+                return false;
+            }
+            
+            // Watering planted crop
             cropData.wateredToday = true;
             cropData.dryDays = 0; // Reset dry days on watering
             this.setCropData(x, y, cropData); // Re-save
@@ -332,7 +395,8 @@
             
             // Add item, remove crop, and revert to tilled soil
             $gameParty.gainItem(harvestItem, 1);
-            this.setCropData(x, y, { state: 'tilled' });
+            // Revert to tilled, unwatered soil
+            this.setCropData(x, y, { state: 'tilled', wateredToday: false }); 
             $gameMessage.add(`Harvested ${harvestItem.name}!`);
             return true;
         }
@@ -347,46 +411,47 @@
                 return;
             }
             
-            console.log(`[${PLUGIN_NAME}] New Day detected: ${currentDay}. Starting growth cycle...`);
-
             const mapKey = this.getMapKey();
             const farmData = $gameMap._farmData[mapKey];
 
             for (const key in farmData) {
                 let cropData = farmData[key];
+                const [x, y] = key.split(',').map(Number);
+
+                if (cropData.state === 'tilled') {
+                    // Reset tilled soil watered status for the new day
+                    cropData.wateredToday = false;
+                    this.setCropData(x, y, cropData);
+                    continue; // Skip to next tile
+                }
 
                 if (cropData.state === 'planted') {
                     const def = CropDefinitions[cropData.cropId];
                     if (!def) continue;
 
-                    if (cropData.wateredToday) {
-                        // Growth progresses: Increment age, reset dryDays (already done by water command)
+                    // 1. Progress Growth
+                    if (cropData.wateredToday && cropData.age < def.stage3Day) {
                         cropData.age += 1;
-                        console.log(`Crop ${cropData.cropId} at ${key} grew to age ${cropData.age}.`);
-                    } else {
-                        // Growth stalls, dry days increase
+                    } 
+                    
+                    // 2. Increase Dry Days if not watered
+                    if (!cropData.wateredToday && cropData.age < def.stage3Day) {
                         cropData.dryDays += 1;
-                        console.log(`Crop ${cropData.cropId} at ${key} did not grow. Dry days: ${cropData.dryDays}.`);
                     }
 
-                    // Check for death
+                    // 3. Check for Death
                     if (cropData.dryDays >= def.maxDryDays) {
-                        $gameMessage.add(`${def.id} died from lack of water.`);
-                        cropData = { state: 'tilled' }; // Revert to tilled
+                        $gameMessage.add(`${def.id} at (${x}, ${y}) died from lack of water.`);
+                        // Revert to tilled, unwatered soil
+                        cropData = { state: 'tilled', wateredToday: false }; 
                     }
                     
-                    // Reset watering status for the next day
+                    // 4. Reset watering status for the next day (if still alive)
                     if (cropData.state === 'planted') {
                         cropData.wateredToday = false;
                     }
                     
                     // Update data and graphic
-                    const [x, y] = key.split(',').map(Number);
-                    this.setCropData(x, y, cropData);
-                } else if (cropData.state === 'tilled') {
-                    // Reset tilled state's wateredToday flag (if it somehow had one)
-                    cropData.wateredToday = false;
-                    const [x, y] = key.split(',').map(Number);
                     this.setCropData(x, y, cropData);
                 }
             }
@@ -410,10 +475,11 @@
     const _Game_Variables_setValue = Game_Variables.prototype.setValue;
     Game_Variables.prototype.setValue = function(variableId, value) {
         // Run original setValue
+        const oldValue = this.value(variableId);
         _Game_Variables_setValue.call(this, variableId, value);
 
-        // Check if the change was to the Day variable (Variable 4 is the day index)
-        if (variableId === 4 && $gameMap && $gameMap.mapId() > 0) {
+        // Check if the change was to the Day variable (Variable 4) and the day number increased
+        if (variableId === 4 && value > oldValue && $gameMap && $gameMap.mapId() > 0) {
             FarmManager.checkGrowth();
         }
     };
