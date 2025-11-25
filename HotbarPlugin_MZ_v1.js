@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc v1.0.0 - Adds a fully-featured, draggable (optional), savable 10-slot hot-bar (keys 1-0) with a simple API other plugins can call.
+ * @plugindesc v1.0.1 - Adds a fully-featured, draggable (optional), savable 10-slot hot-bar (keys 1-0) with a simple API and expanded Plugin Commands.
  *
  * @param slotSize
  * @text Slot Size
@@ -65,23 +65,25 @@
  * @default 0
  *
  * @help
- * Hotbar Plugin (MZ) - v1.0.0
+ * Hotbar Plugin (MZ) - v1.0.1
  * --------------------------
  * Features:
  * - 10 slots labeled 1..9 and 0 (0 is the tenth slot).
  * - Each slot displays the icon of an assigned item/skill (uses IconSet).
  * - Press keys 1-0 to swap the player's currently selected item (Item/Skill scenes) 
  * or the plugin-managed "active item" with the hotbar slot.
- * - **New:** Bar can be draggable (controlled by plugin parameter 'draggable'). 
+ * - Bar can be draggable (controlled by plugin parameter 'draggable'). 
  * Position is saved/loaded with save files.
- * - **New:** Slot is highlighted when its corresponding key (1-0) is pressed.
- * - **New:** Full API access for other plugins.
- * * API Functions (Use in Script calls):
+ * - Slot is highlighted when its corresponding key (1-0) is pressed.
+ * - Full API access for other plugins.
+ * * * API Functions (Use in Script calls):
  * HotbarManager.addItemToHotbar(itemDescriptor, slotIndex)   // place item/skill into slot (0..9)
  * HotbarManager.removeItemFromHotbar(slotIndex)              // clear a slot
  * HotbarManager.getHotbarItem(slotIndex)                     // returns descriptor or null
  * HotbarManager.setActiveItem(itemDescriptor)                // set plugin-managed active item
  * HotbarManager.getActiveItem()                              // get plugin-managed active item
+ * HotbarManager.setActiveSlotIndex(slotIndex)                // NEW: Manually set the active hotbar slot index (0-9)
+ * HotbarManager.getActiveSlotIndex()                         // NEW: Get the currently stored active hotbar slot index (0-9)
  *
  * ItemDescriptor accepted formats (can be used in addItemToHotbar):
  * - number -> treated as item id (item)
@@ -90,7 +92,119 @@
  *
  * Plugin Commands:
  * - SetHotbarItem: Sets an item or skill into a specific hotbar slot.
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Slot Index (0-9)
+ * @desc The hotbar slot index (0-9) to modify.
+ * @arg itemType
+ * @type select
+ * @option Item
+ * @value item
+ * @option Weapon
+ * @value weapon
+ * @option Armor
+ * @value armor
+ * @option Skill
+ * @value skill
+ * @default item
+ * @text Item Type
+ * @desc The database type of the item/skill.
+ * @arg itemId
+ * @type number
+ * @min 1
+ * @default 1
+ * @text Item/Skill ID
+ * @desc The ID of the item/skill in the database.
+ *
  * - ClearHotbarItem: Clears a specific hotbar slot.
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Slot Index (0-9)
+ * @desc The hotbar slot index (0-9) to clear.
+ *
+ * - SetActiveSlot: Sets the currently "active" slot index (0-9).
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Active Slot Index (0-9)
+ * @desc The hotbar slot index (0-9) to set as active.
+ *
+ * - GetActiveSlot: Retrieves the currently "active" slot index (0-9) into a Game Variable.
+ * @arg variableId
+ * @type variable
+ * @default 1
+ * @text Game Variable ID
+ * @desc The ID of the Game Variable to store the active slot index (0-9).
+  *
+ * @command SetHotbarItem
+ * @text Set Hotbar Item
+ * @desc Set an item/skill into a specific hotbar slot.
+ *
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Slot Index (0-9)
+ *
+ * @arg itemType
+ * @type select
+ * @text Item Type
+ * @option Item
+ * @value item
+ * @option Weapon
+ * @value weapon
+ * @option Armor
+ * @value armor
+ * @option Skill
+ * @value skill
+ * @default item
+ *
+ * @arg itemId
+ * @type number
+ * @min 1
+ * @default 1
+ * @text Item/Skill ID
+ *
+ * @command ClearHotbarItem
+ * @text Clear Hotbar Item
+ * @desc Clears a specific hotbar slot.
+ *
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Slot Index (0-9)
+ *
+ * @command SetActiveSlot
+ * @text Set Active Slot
+ * @desc Sets the currently active hotbar slot index.
+ *
+ * @arg slotIndex
+ * @type number
+ * @min 0
+ * @max 9
+ * @default 0
+ * @text Active Slot Index (0-9)
+ *
+ * @command GetActiveSlot
+ * @text Get Active Slot
+ * @desc Stores the active slot index into a game variable.
+ *
+ * @arg variableId
+ * @type variable
+ * @default 1
+ * @text Game Variable ID
+ * @desc Variable to store the active slot index.
  *
  */
 
@@ -126,6 +240,10 @@
             if (!$gameSystem._hotbarPos) {
                 $gameSystem._hotbarPos = { x: 0, y: 0 }; // Will be calculated in Scene_Map
             }
+            // NEW: Active Slot Index
+            if (typeof $gameSystem._hotbarActiveSlotIndex !== 'number') {
+                $gameSystem._hotbarActiveSlotIndex = -1; // -1 means no slot is explicitly active
+            }
         }
 
         static getSlotItem(index) {
@@ -140,12 +258,28 @@
         }
         
         static getActiveItem() {
+            this.ensureData();
             return $gameSystem._hotbarActiveItem;
         }
 
         static setActiveItem(item) {
+            this.ensureData();
             $gameSystem._hotbarActiveItem = item;
+            // When the active item changes, reset the active slot index (unless logic demands otherwise)
+            // For now, let's keep active slot index independent of active item unless explicitly set.
             if (_hotbarSpriteInstance) _hotbarSpriteInstance.refresh();
+        }
+        
+        // NEW: Get/Set Active Slot Index
+        static getActiveSlotIndex() {
+            this.ensureData();
+            return $gameSystem._hotbarActiveSlotIndex;
+        }
+
+        static setActiveSlotIndex(index) {
+            this.ensureData();
+            const slotIndex = index >= 0 && index < HOTBAR_SLOTS ? index : -1;
+            $gameSystem._hotbarActiveSlotIndex = slotIndex;
         }
 
         static setPosition(x, y) {
@@ -255,6 +389,9 @@
             // Slot gets the active item, active item gets the old slot item
             HotbarManager.setActiveItem(currentSlotItem);
             HotbarManager.setSlotItem(slotIndex, activeItem);
+            
+            // Additionally, set the slot as the currently active slot index
+            HotbarManager.setActiveSlotIndex(slotIndex);
 
             // Optional: Show a message when swapping the active item
             const newActiveDBItem = HotbarManager.getDBItem(HotbarManager.getActiveItem());
@@ -283,7 +420,7 @@
             this.anchor.set(0.5, 0.5); 
             this._needsRefresh = true;
             this._dragging = false;
-            this._highlightedSlot = -1; // New property for highlighting
+            this._highlightedSlot = -1; // Property for key-press highlighting
             
             this.refresh();
             
@@ -294,6 +431,7 @@
 
         // --- Draggable Setup ---
         setupDragging() {
+            // Adjust hit area slightly to allow for the small 2px translation in refresh()
             this.hitArea = new Rectangle(0, 0, this.width, this.height);
             this.interactive = true;
 
@@ -344,7 +482,7 @@
             }
         }
         
-        // New: Checks key input and sets the highlighted slot
+        // Checks key input and sets the highlighted slot
         updateHighlight() {
             let newHighlight = -1;
             for (let i = 0; i < HOTBAR_SLOTS; i++) {
@@ -356,6 +494,13 @@
                         HotbarManager.handleHotbarSwap(i);
                     }
                 }
+            }
+
+            // Also check for the explicitly set active slot
+            const activeSlotIndex = HotbarManager.getActiveSlotIndex();
+            // If no key is pressed, use the active slot index for highlight
+            if (newHighlight === -1 && activeSlotIndex !== -1) {
+                newHighlight = activeSlotIndex;
             }
 
             if (this._highlightedSlot !== newHighlight) {
@@ -473,7 +618,7 @@
         // If not saved, calculate default position
         if (x === 0 && y === 0) {
             x = DefaultX > 0 ? DefaultX : Graphics.width / 2;
-            y = DefaultY > 0 ? DefaultY : Graphics.height - Margin - (Sprite_Hotbar.TotalHeight / 2);
+            y = DefaultY > 0 ? DefaultY : Graphics.height - SlotSize - Margin; // Fixed calculation to use SlotSize (TotalHeight)
             HotbarManager.setPosition(x, y);
         }
         
@@ -504,8 +649,9 @@
         const contents = _DataManager_makeSaveContents.apply(this, arguments);
         contents.system.hotbarData = $gameSystem._hotbarData;
         contents.system.hotbarActiveItem = $gameSystem._hotbarActiveItem;
-        // Save the current position
         contents.system.hotbarPos = $gameSystem._hotbarPos; 
+        // NEW: Save the active slot index
+        contents.system.hotbarActiveSlotIndex = $gameSystem._hotbarActiveSlotIndex; 
         return contents;
     };
 
@@ -514,8 +660,11 @@
         _DataManager_extractSaveContents.apply(this, arguments);
         $gameSystem._hotbarData = contents.system.hotbarData || new Array(HOTBAR_SLOTS).fill(null);
         $gameSystem._hotbarActiveItem = contents.system.hotbarActiveItem || null;
-        // Load the position
         $gameSystem._hotbarPos = contents.system.hotbarPos || { x: 0, y: 0 };
+        // NEW: Load the active slot index
+        $gameSystem._hotbarActiveSlotIndex = contents.system.hotbarActiveSlotIndex !== undefined 
+            ? contents.system.hotbarActiveSlotIndex 
+            : -1;
         
         if (_hotbarSpriteInstance) _hotbarSpriteInstance.refresh();
     };
@@ -533,8 +682,7 @@
     Input.keyMapper[KEY_CODES[8]] = 'hotbar9';
     Input.keyMapper[KEY_CODES[9]] = 'hotbar0';
     
-    // The actual swapping happens inside Sprite_Hotbar.updateHighlight(),
-    // but we need to ensure the Input handling continues during the map scene update.
+    // The actual swapping happens inside Sprite_Hotbar.updateHighlight().
     
     // --- 7. Plugin Commands (for Events) ---
     
@@ -553,6 +701,26 @@
     PluginManager.registerCommand(PLUGIN_NAME, "ClearHotbarItem", args => {
         const slotIndex = Number(args.slotIndex || 0);
         HotbarManager.removeItemFromHotbar(slotIndex);
+    });
+    
+    // NEW PLUGIN COMMAND: SetActiveSlot
+    PluginManager.registerCommand(PLUGIN_NAME, "SetActiveSlot", args => {
+        const slotIndex = Number(args.slotIndex || 0);
+        HotbarManager.setActiveSlotIndex(slotIndex);
+        if (_hotbarSpriteInstance) _hotbarSpriteInstance._needsRefresh = true;
+    });
+
+    // NEW PLUGIN COMMAND: GetActiveSlot
+    PluginManager.registerCommand(PLUGIN_NAME, "GetActiveSlot", args => {
+        const variableId = Number(args.variableId || 0);
+        const activeSlotIndex = HotbarManager.getActiveSlotIndex();
+        
+        if (variableId > 0) {
+            $gameVariables.setValue(variableId, activeSlotIndex);
+            console.log(`[${PLUGIN_NAME}] GetActiveSlot: Stored active slot index (${activeSlotIndex}) into Game Variable ${variableId}.`);
+        } else {
+            console.warn(`[${PLUGIN_NAME}] GetActiveSlot failed: Game Variable ID must be greater than 0.`);
+        }
     });
 
 })();
