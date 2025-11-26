@@ -83,7 +83,7 @@
  */
 
 (() => {
-    const PLUGIN_NAME = "HotkeyCommander";
+    const PLUGIN_NAME = "HotkeyCommander_MZ_v1";
     const parameters   = PluginManager.parameters(PLUGIN_NAME);
     const rawBindings  = JSON.parse(parameters['hotkeyBindings'] || '[]');
     const loadJson     = parameters['loadJson'] === 'true';
@@ -231,3 +231,4 @@
         }
     };
 })();
+
