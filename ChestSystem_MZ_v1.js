@@ -1,7 +1,33 @@
 /*:
  * @target MZ
  * @plugindesc Region-Based Persistent Chest Inventory System
- * @author Gemini
+ * @author OuttieTV
+ *
+ * @param Region Chest Map
+ * @text Region-to-Chest Mapping
+ * @type struct<RegionMap>[]
+ * @desc Define which Region ID maps to a specific Chest Size and its default graphic Tile ID.
+ * @default []
+ *
+ * @param Chest Type Settings
+ * @text Chest Size Properties
+ * @type struct<ChestType>[]
+ * @desc Define properties (e.g., max capacity) for each Chest Size (e.g., 'small', 'large').
+ * @default []
+ *
+ * @param Load JSON?
+ * @text Load External JSON?
+ * @type boolean
+ * @desc If true, settings are merged from an external JSON file.
+ * @default false
+ *
+ * @param JSON Config File
+ * @text JSON Config Path
+ * @parent Load JSON?
+ * @type file
+ * @dir data
+ * @desc Path to the external JSON file (e.g., data/ChestConfig.json).
+ * @default data/ChestConfig.json
  *
  * @help
  * ===========================================================================
@@ -18,12 +44,12 @@
  * Plugin Parameters
  * ===========================================================================
  *
- * - Region Chest Map: Define which Region ID corresponds to which chest size
- * and graphic (Tile ID). The 'Chest Size' must match a key in the
+ * - Region Chest Map: Define which **Region ID** corresponds to which **Chest Size**
+ * and graphic (**Tile ID**). The 'Chest Size' must match a key in the
  * 'Chest Type Settings' (e.g., 'small', 'medium', 'large').
  *
  * - Chest Type Settings: Define the properties for each 'Chest Size' (type).
- * This is where you set the maximum capacity.
+ * This is where you set the **maximum capacity** (item slots).
  *
  * - Load JSON?: If true, the plugin will load and merge settings from an
  * external JSON file specified in 'JSON Config File'.
@@ -83,6 +109,14 @@
  * - 'quantity' can be a number or 'all'.
  * - Example: removeFromChest 15 20 3 1 (Removes 1 of Armor ID 3)
  *
+ * 5. openChest x y
+ * - Opens the chest UI for the chest located at map coordinates (x, y).
+ * - Example: openChest 15 20
+ *
+ * 6. closeChest
+ * - Closes the currently active chest UI, if one is open.
+ * - Example: closeChest
+ *
  * ===========================================================================
  * Interaction
  * ===========================================================================
@@ -91,13 +125,48 @@
  * chest location, the Chest UI will automatically open.
  *
  * ===========================================================================
- * Data Structure
+ * Structures for Parameters
  * ===========================================================================
+ */
+/*~struct~RegionMap:
+ * @param regionId
+ * @text Region ID
+ * @type number
+ * @min 1
+ * @desc The Region ID on the map that designates a chest location.
+ * @default 1
  *
- * Chest data is stored in the global object '$gameChest'.
- * Structure: { mapId: { 'x,y': { type: 'size', items: [...] } } }
+ * @param chestSize
+ * @text Chest Size (Type)
+ * @type string
+ * @desc A unique identifier for the chest size (e.g., 'small', 'medium').
+ * @default small
  *
- * ===========================================================================
+ * @param tileId
+ * @text Tile ID (A4/A5)
+ * @type tilemap
+ * @desc The Tile ID (A4/A5) used for the chest graphic when it is present.
+ * @default 2816
+ */
+/*~struct~ChestType:
+ * @param chestSize
+ * @text Chest Size (Type)
+ * @type string
+ * @desc The unique identifier for this chest size (must match Region Map).
+ * @default small
+ *
+ * @param maxCapacity
+ * @text Max Item Capacity
+ * @type number
+ * @min 1
+ * @desc The maximum number of distinct item stacks this chest size can hold.
+ * @default 20
+ *
+ * @param tileId
+ * @text Default Tile ID
+ * @type tilemap
+ * @desc The default Tile ID (A4/A5) for this size, overridden by Region Map if set.
+ * @default 2816
  */
 
 // Helper function to convert plugin parameter strings to structured data
@@ -114,7 +183,7 @@ const convertParameters = (parameters) => {
 };
 
 (() => {
-    const pluginName = "ChestSystem_MZ_v1.js";
+    const pluginName = "ChestSystem_MZ_v1";
 
     // --- Plugin Parameters ---
     const params = PluginManager.parameters(pluginName);
@@ -160,6 +229,14 @@ const convertParameters = (parameters) => {
      * @type {object<number, object<string, ChestData>>}
      */
     let $gameChest = {};
+    
+    /**
+     * Stores the coordinates of the chest currently being viewed by the player.
+     * Used for the `closeChest` command.
+     * @type {object | null}
+     */
+    let $currentChestLocation = null;
+
 
     // --- Core Functions ---
 
@@ -260,12 +337,11 @@ const convertParameters = (parameters) => {
 
         // Check chest capacity if adding
         if (toChest) {
-            const currentItemCount = chestData.items.reduce((sum, item) => sum + item.quantity, 0);
-            if (currentItemCount >= config.maxCapacity) {
-                // If the item is already in the chest, it's fine (stacking is okay)
-                if (!chestItem) {
-                    // But if it's a new item and capacity is full, block it
-                    if (chestData.items.length >= config.maxCapacity) return false;
+            // Check if capacity of *stacks* is full only if we are adding a NEW stack
+            if (!chestItem) {
+                if (chestData.items.length >= config.maxCapacity) {
+                    console.warn(`RBCIS: Chest at (${x}, ${y}) capacity full.`);
+                    return false;
                 }
             }
         }
@@ -307,11 +383,12 @@ const convertParameters = (parameters) => {
 
     // --- Global Data Manager Overrides (Persistence) ---
 
-    // Initialize $gameChest on new game/load
+    // Initialize $gameChest and $currentChestLocation on new game/load
     const _DataManager_createGameObjects = DataManager.createGameObjects;
     DataManager.createGameObjects = function() {
         _DataManager_createGameObjects.apply(this, arguments);
         $gameChest = {};
+        $currentChestLocation = null;
     };
 
     // Save chest data
@@ -319,6 +396,7 @@ const convertParameters = (parameters) => {
     DataManager.makeSaveContents = function() {
         const contents = _DataManager_makeSaveContents.apply(this, arguments);
         contents.chest = $gameChest;
+        contents.currentChestLocation = $currentChestLocation;
         return contents;
     };
 
@@ -327,12 +405,12 @@ const convertParameters = (parameters) => {
     DataManager.extractSaveContents = function(contents) {
         _DataManager_extractSaveContents.apply(this, arguments);
         $gameChest = contents.chest || {};
+        $currentChestLocation = contents.currentChestLocation || null;
     };
 
     // --- JSON Configuration Loading ---
 
-    const _Scene_Boot_is
-    DataLoaded = Scene_Boot.prototype.isDataLoaded;
+    const _Scene_Boot_isDataLoaded = Scene_Boot.prototype.isDataLoaded;
     Scene_Boot.prototype.isDataLoaded = function() {
         if (!_Scene_Boot_isDataLoaded.apply(this, arguments)) {
             return false;
@@ -361,6 +439,7 @@ const convertParameters = (parameters) => {
                             if (config.maxCapacity !== undefined) {
                                 chestTypeSettings[type].maxCapacity = Number(config.maxCapacity);
                             }
+                            // BaseTileId is used for the default graphic if region map fails
                             if (config.tileId !== undefined) {
                                 chestTypeSettings[type].baseTileId = Number(config.tileId);
                             }
@@ -472,6 +551,33 @@ const convertParameters = (parameters) => {
         }
     });
 
+    /**
+     * Opens the chest UI for a chest at the specified coordinates.
+     * @param {{ x: string, y: string }} args
+     */
+    PluginManager.registerCommand(pluginName, "openChest", (args) => {
+        const x = Number(args.x);
+        const y = Number(args.y);
+        const mapId = $gameMap.mapId();
+
+        if (getChestData(x, y)) {
+            $currentChestLocation = { mapId: mapId, x: x, y: y };
+            SceneManager.push(Scene_Chest);
+        } else {
+            console.warn(`RBCIS: Cannot openChest. No chest found at (${x}, ${y}) on Map ${mapId}.`);
+        }
+    });
+
+    /**
+     * Closes the currently active chest UI.
+     */
+    PluginManager.registerCommand(pluginName, "closeChest", () => {
+        if (SceneManager.isCurrentScene(Scene_Chest)) {
+            SceneManager.pop();
+            $currentChestLocation = null;
+        }
+    });
+
 
     // --- Map Rendering Override (Feature 1: Chest Graphic) ---
 
@@ -519,6 +625,11 @@ const convertParameters = (parameters) => {
             const chestData = getChestData(x, y);
 
             if (chestData) {
+                // Set the current chest location before reserving transfer
+                $currentChestLocation = { mapId: this.mapId(), x: x, y: y };
+
+                // Reserve transfer is used to prevent the player sprite from moving
+                // if they are facing a chest from an adjacent tile.
                 $gamePlayer.reserveTransfer(this.mapId(), x, y, this.direction(), 0);
                 SceneManager.push(Scene_Chest);
                 return true;
@@ -539,9 +650,12 @@ const convertParameters = (parameters) => {
 
     Scene_Chest.prototype.initialize = function() {
         Scene_MenuBase.prototype.initialize.call(this);
-        const [mapId, x, y] = $gamePlayer._followers._data[0] ?
-            [$gamePlayer.mapId(), $gamePlayer.x, $gamePlayer.y] :
-            [$gamePlayer.reserveMapId(), $gamePlayer.reserveX(), $gamePlayer.reserveY()];
+
+        // Get chest coordinates from the reserved location data
+        const mapId = $currentChestLocation.mapId;
+        const x = $currentChestLocation.x;
+        const y = $currentChestLocation.y;
+
         this._mapId = mapId;
         this._chestX = x;
         this._chestY = y;
@@ -565,7 +679,7 @@ const convertParameters = (parameters) => {
         const rect = this.chestWindowRect();
         this._chestWindow = new Window_Chest(rect);
         this._chestWindow.setHandler("ok", this.onChestOk.bind(this));
-        this._chestWindow.setHandler("cancel", this.popScene.bind(this));
+        this._chestWindow.setHandler("cancel", this.onCancel.bind(this));
         this._chestWindow.setHelpWindow(this._helpWindow);
         this.addWindow(this._chestWindow);
     };
@@ -582,7 +696,7 @@ const convertParameters = (parameters) => {
         const rect = this.partyWindowRect();
         this._partyWindow = new Window_PartyChest(rect);
         this._partyWindow.setHandler("ok", this.onPartyOk.bind(this));
-        this._partyWindow.setHandler("cancel", this.popScene.bind(this));
+        this._partyWindow.setHandler("cancel", this.onCancel.bind(this));
         this._partyWindow.setHelpWindow(this._helpWindow);
         this.addWindow(this._partyWindow);
     };
@@ -600,7 +714,7 @@ const convertParameters = (parameters) => {
         this._commandWindow = new Window_ChestCommand(rect);
         this._commandWindow.setHandler("take", this.commandTake.bind(this));
         this._commandWindow.setHandler("store", this.commandStore.bind(this));
-        this._commandWindow.setHandler("cancel", this.popScene.bind(this));
+        this._commandWindow.setHandler("cancel", this.onCancel.bind(this));
         this.addWindow(this._commandWindow);
     };
 
@@ -619,6 +733,11 @@ const convertParameters = (parameters) => {
         this._commandWindow.selectLast();
         this._commandWindow.activate();
     };
+
+    Scene_Chest.prototype.onCancel = function() {
+        $currentChestLocation = null;
+        SceneManager.pop();
+    }
 
     Scene_Chest.prototype.commandTake = function() {
         this._chestWindow.select(0);
@@ -703,6 +822,8 @@ const convertParameters = (parameters) => {
         } else {
             this._chestWindow.activate();
         }
+        // Always return focus to the command window group
+        this._commandWindow.activate();
     };
 
     Scene_Chest.prototype.doTransfer = function(item, quantity, toChest) {
@@ -714,8 +835,7 @@ const convertParameters = (parameters) => {
     Scene_Chest.prototype.refreshWindows = function() {
         this._chestWindow.refresh(this._chestData);
         this._partyWindow.refresh();
-        this._chestWindow.activate(); // Default back to chest selection after transfer
-        this._commandWindow.activate(); // Should always be active below
+        this._commandWindow.activate();
     };
 
 
@@ -820,13 +940,13 @@ const convertParameters = (parameters) => {
         this.selectLast();
     };
 
-    // Overriding includes and maxItems to show all items (including weapons/armor)
+    // Overriding includes and makeItemList to show all items (including weapons/armor)
     Window_PartyChest.prototype.includes = function(item) {
-        return item !== null; // Show all items
+        return item !== null; // Show all items the party has
     };
 
     Window_PartyChest.prototype.makeItemList = function() {
-        // Collect all items, weapons, and armor the party has
+        // Collect all items, weapons, and armor the party has, filtered by quantity > 0
         this._data = $gameParty.allItems().filter(item => $gameParty.numItems(item) > 0);
     };
 
