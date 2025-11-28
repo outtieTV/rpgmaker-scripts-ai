@@ -82,40 +82,107 @@
  * 'Region Chest Map' parameter using its name (e.g., use 'custom_vault' for
  * the Chest Size property of a Region ID mapping).
  *
- * ===========================================================================
- * Plugin Commands (@command)
- * ===========================================================================
+ * @command addChest
+ * @text Add Chest
+ * @desc Creates a chest at the given coordinates.
  *
- * Use these commands in Event Scripts via the 'Plugin Command' editor page.
+ * @arg x
+ * @text X Coordinate
+ * @type number
+ * @min 0
+ * @desc Map X coordinate for the chest.
  *
- * 1. addChest x y
- * - Creates an empty chest at map coordinates (x, y) using the region rules.
- * - Example: addChest 15 20
+ * @arg y
+ * @text Y Coordinate
+ * @type number
+ * @min 0
+ * @desc Map Y coordinate for the chest.
  *
- * 2. delChest x y
- * - Deletes the chest at (x, y) and discards its contents.
- * - Example: delChest 15 20
+ * @command delChest
+ * @text Delete Chest
+ * @desc Deletes the chest at the given coordinates.
  *
- * 3. addToChest x y itemId quantity
- * - Transfers 'quantity' of 'itemId' from the party inventory to the chest.
- * - 'itemId' is the ID number of the item/weapon/armor (1-based).
- * - 'quantity' can be a number or 'all' (moves the entire stack).
- * - Example: addToChest 15 20 1 5   (Adds 5 of Item ID 1)
- * - Example: addToChest 15 20 2 'all' (Adds all of Weapon ID 2)
+ * @arg x
+ * @text X Coordinate
+ * @type number
+ * @min 0
+ * @desc Map X coordinate.
  *
- * 4. removeFromChest x y itemId quantity
- * - Transfers 'quantity' of 'itemId' from the chest to the party inventory.
- * - 'itemId' is the ID number of the item/weapon/armor (1-based).
- * - 'quantity' can be a number or 'all'.
- * - Example: removeFromChest 15 20 3 1 (Removes 1 of Armor ID 3)
+ * @arg y
+ * @text Y Coordinate
+ * @type number
+ * @min 0
+ * @desc Map Y coordinate.
  *
- * 5. openChest x y
- * - Opens the chest UI for the chest located at map coordinates (x, y).
- * - Example: openChest 15 20
+ * @command addToChest
+ * @text Add Item to Chest
+ * @desc Moves items from party → chest.
  *
- * 6. closeChest
- * - Closes the currently active chest UI, if one is open.
- * - Example: closeChest
+ * @arg x
+ * @text X Coordinate
+ * @type number
+ * @min 0
+ *
+ * @arg y
+ * @text Y Coordinate
+ * @type number
+ * @min 0
+ *
+ * @arg itemId
+ * @text Item ID
+ * @type number
+ * @min 1
+ * @desc ID of the item/weapon/armor.
+ *
+ * @arg quantity
+ * @text Quantity
+ * @type text
+ * @desc Number OR "all"
+ *
+ *
+ * @command removeFromChest
+ * @text Remove Item from Chest
+ * @desc Moves items from chest → party.
+ *
+ * @arg x
+ * @text X Coordinate
+ * @type number
+ * @min 0
+ *
+ * @arg y
+ * @text Y Coordinate
+ * @type number
+ * @min 0
+ *
+ * @arg itemId
+ * @text Item ID
+ * @type number
+ * @min 1
+ *
+ * @arg quantity
+ * @text Quantity
+ * @type text
+ * @desc Number OR "all"
+ *
+ *
+ * @command openChest
+ * @text Open Chest UI
+ * @desc Opens the chest UI at the given coordinates.
+ *
+ * @arg x
+ * @text X Coordinate
+ * @type number
+ * @min 0
+ *
+ * @arg y
+ * @text Y Coordinate
+ * @type number
+ * @min 0
+ *
+ *
+ * @command closeChest
+ * @text Close Chest UI
+ * @desc Closes the chest window if open.
  *
  * ===========================================================================
  * Interaction
