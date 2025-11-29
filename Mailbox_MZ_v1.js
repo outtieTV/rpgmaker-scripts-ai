@@ -247,8 +247,6 @@ MailboxSystem.checkMailDelivery = function() {
 MailboxSystem.checkAutoOpenMailbox = function() {
     // 1. Check if the player is currently on the designated Region ID
     if ($gamePlayer.regionId() === MailboxSystem.mailboxRegionId) {
-        // 2. We only care if the player has mail
-        if ($gameSystem.mailbox.inbox.length === 0) return;
 
         const scene = SceneManager._scene;
 
@@ -424,23 +422,30 @@ Window_MailList.prototype.setupMailList = function(mailArray) {
 };
 
 Window_MailList.prototype.maxItems = function() {
-    return this._mailList ? this._mailList.length : 0;
+    return this._mailList && this._mailList.length > 0 ? this._mailList.length : 1;
 };
 
 Window_MailList.prototype.selectedMail = function() {
-    const index = this.index();
-    return this._mailList && index >= 0 ? this._mailList[index] : null;
+    if (!this._mailList || this._mailList.length === 0) return null;
+    return this._mailList[this.index()];
 };
 
 Window_MailList.prototype.drawItem = function(index) {
+    if (!this._mailList || this._mailList.length === 0) {
+        const rect = this.itemLineRect(index);
+        this.changeTextColor(ColorManager.textColor(7)); // gray
+        this.drawText("No Mail", rect.x, rect.y, rect.width, "center");
+        return;
+    }
+
     const mail = this._mailList[index];
     if (mail) {
         const rect = this.itemLineRect(index);
-        const iconBoxWidth = 24; // Width for the 'unread' indicator
+        const iconBoxWidth = 24;
 
         this.resetTextColor();
 
-        // Draw unread indicator
+        // Unread indicator
         if (!mail.read) {
             this.changeTextColor(ColorManager.crisisColor());
             this.drawText("•", rect.x, rect.y, iconBoxWidth, "left");
@@ -449,16 +454,14 @@ Window_MailList.prototype.drawItem = function(index) {
 
         const textX = rect.x + iconBoxWidth;
         const textW = rect.width - iconBoxWidth;
-        const subject = mail.subject || "(No Subject)";
 
-        // Change text color based on read status
         if (!mail.read) {
-            this.changeTextColor(ColorManager.textColor(0)); // Brighter color for unread
+            this.changeTextColor(ColorManager.textColor(0));
         } else {
-            this.changeTextColor(ColorManager.textColor(7)); // Dimmer color for read
+            this.changeTextColor(ColorManager.textColor(7));
         }
 
-        this.drawText(subject, textX, rect.y, textW);
+        this.drawText(mail.subject || "(No Subject)", textX, rect.y, textW);
     }
 };
 
