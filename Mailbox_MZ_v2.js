@@ -37,6 +37,20 @@
  * @text Close Mailbox
  * @desc Closes the mailbox UI and returns to the game map.
  *
+ * @command sendLetterFromString
+ * @text Send Letter (JSON String)
+ * @desc Adds a new mail item to the player's inbox by parsing a JSON string.
+ * @arg mailJson
+ * @type string
+ * @desc A JSON string representing the mail object (e.g., {"subject": "Test", "body": "Hello."})
+ *
+ * @command sendLetterFromFile
+ * @text Send Letter (JSON File)
+ * @desc Loads mail definitions from a specified JSON file and adds them to the inbox.
+ * @arg filePath
+ * @type string
+ * @desc The relative path to the JSON file (e.g., data/mail/quest1.json)
+ *
  * ---------------------------------------------------------------------------
  * Usage Notes
  * ---------------------------------------------------------------------------
@@ -48,7 +62,7 @@
 
 // Global alias for the plugin
 const MailboxSystem = {};
-MailboxSystem.pluginName = "Mailbox_MZ_v1"; // Consistent internal name for parameters and commands
+MailboxSystem.pluginName = "Mailbox_MZ_v2"; // Consistent internal name for parameters and commands
 
 MailboxSystem.parameters = PluginManager.parameters(MailboxSystem.pluginName);
 
@@ -718,6 +732,61 @@ Window_MailCommands.prototype.itemRectWithPadding = function(index) {
 };
 
 // ============================================================================
+// NEW HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Standardizes a mail object and adds it to the player's inbox.
+ */
+MailboxSystem.addMailToInbox = function(mail) {
+    if (!$gameSystem || !$gameSystem.mailbox || typeof mail !== 'object' || Array.isArray(mail)) {
+        console.warn("[MailboxSystem] Attempted to add invalid mail object:", mail);
+        return;
+    }
+
+    // Set necessary persistent/state flags
+    mail.mailId = mail.mailId || Date.now() + Math.random();
+    mail.read = false; 
+    mail.deleted = false;
+
+    // Only add if not already in the inbox and not previously deleted
+    if (!$gameSystem.mailbox.inbox.find(m => m.mailId === mail.mailId) &&
+        !$gameSystem.mailbox.deletedMailIds.includes(mail.mailId)) {
+        $gameSystem.mailbox.inbox.push(mail);
+    } else {
+        console.info("[MailboxSystem] Mail with ID", mail.mailId, "already exists or was deleted. Skipping.");
+    }
+};
+
+/**
+ * Loads a JSON file from the project's data directory.
+ */
+MailboxSystem._loadDataFile = function(filePath, callback) {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", filePath);
+    xhr.overrideMimeType("application/json");
+
+    xhr.onload = function() {
+        if (xhr.status === 200 || xhr.status === 0) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                callback(data);
+            } catch (e) {
+                console.error(`[MailboxSystem] Failed to parse JSON file '${filePath}':`, e);
+            }
+        } else {
+            console.error(`[MailboxSystem] Failed to load JSON file '${filePath}'. Status:`, xhr.status);
+        }
+    };
+    
+    xhr.onerror = function() {
+        console.error(`[MailboxSystem] Error loading JSON file '${filePath}'.`);
+    };
+    
+    xhr.send();
+};
+
+// ============================================================================
 // PLUGIN COMMAND HANDLERS
 // ============================================================================
 
@@ -737,6 +806,68 @@ PluginManager.registerCommand(MailboxSystem.pluginName, "closeMail", () => {
         SceneManager.pop();
     }
 });
+
+/**
+ * Registers the 'sendLetterFromString' command to parse a JSON string and add the mail.
+ */
+PluginManager.registerCommand(MailboxSystem.pluginName, "sendLetterFromString", args => {
+    const mailJsonString = args.mailJson;
+    if (mailJsonString) {
+        try {
+            const mail = JSON.parse(mailJsonString);
+            MailboxSystem.addMailToInbox(mail);
+        } catch (e) {
+            console.error("[MailboxSystem] Plugin Command Error: Failed to parse mailJson string.", e);
+        }
+    }
+});
+
+/* -------------------------------------------------------------
+   Helper – resolve a filename to the path used by loadDataFile
+   ------------------------------------------------------------- */
+MailboxSystem._resolveMailPath = function (fileName) {
+    // Remove any leading/trailing spaces
+    const trimmed = fileName.trim();
+
+    // If the argument already contains a folder separator, keep it,
+    // otherwise prepend the default "mail/" folder.
+    const hasFolder = trimmed.includes('/') || trimmed.includes('\\');
+    const baseFolder = hasFolder ? '' : 'data/mail/';
+
+    // Strip the .json extension (case‑insensitive)
+    const cleanName = trimmed.replace(/\.json$/i, '');
+
+    return baseFolder + cleanName + ".json";
+};
+
+/* -------------------------------------------------------------
+   Updated command – sendLetterFromFile
+   ------------------------------------------------------------- */
+PluginManager.registerCommand(
+    MailboxSystem.pluginName,
+    "sendLetterFromFile",
+    args => {
+        const rawPath = args.filePath;
+        if (!rawPath) {
+            console.warn("[MailboxSystem] sendLetterFromFile called with empty path.");
+            return;
+        }
+
+        const resolvedPath = MailboxSystem._resolveMailPath(rawPath); // e.g. "mail/quest1.json"
+
+        // Use your helper which accepts a callback
+        MailboxSystem._loadDataFile(resolvedPath, (data) => {
+            if (!data) {
+                console.warn(`[MailboxSystem] Could not load file '${resolvedPath}'`);
+                return;
+            }
+            const mails = Array.isArray(data) ? data : [data];
+            mails.forEach(mail => MailboxSystem.addMailToInbox(mail));
+            console.log(`[MailboxSystem] sendLetterFromFile loaded ${mails.length} mail(s) from ${resolvedPath}`);
+        });
+    }
+);
+
 
 // Expose the global object
 window.MailboxSystem = MailboxSystem;
