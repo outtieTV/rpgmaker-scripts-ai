@@ -1,7 +1,16 @@
 /*:
+ * @name FarmingSystem_MZ_v2
  * @target MZ
- * @plugindesc v2.0.0 - Implements a persistent, tile-based farming system with detailed state visuals (watered/dry/dead).
- * @author OuttieTV
+ * @plugindesc v2.0.0 - Implements a persistent, tile-based farming system.
+ * @author outtieTV
+ * @base FarmingSystem_MZ_v2
+ * @orderAfter FarmingSystem_MZ_v2
+ *
+ * @param LoadJson
+ * @text Load JSON?
+ * @type boolean
+ * @default true
+ * @desc If true, loads settings and crops from data/FarmingConfig.json. If false, uses plugin parameters only.
  *
  * @param General Settings
  *
@@ -36,7 +45,7 @@
  *
  * @param Crops
  * @type struct<Crop>[]
- * @desc List of all definable crops the player can plant.
+ * @desc List of all definable crops the player can plant. 
  * @default ["{\"CropId\":\"Wheat\",\"SeedItemId\":\"10\",\"Stage2Day\":\"3\",\"Stage3Day\":\"6\",\"MaxDryDays\":\"2\",\"Stage1UnwateredTileId\":\"2820\",\"Stage1WateredTileId\":\"2821\",\"Stage2UnwateredTileId\":\"2822\",\"Stage2WateredTileId\":\"2823\",\"Stage2DryTileId\":\"2824\",\"Stage3TileId\":\"2825\",\"DeadCropTileId\":\"2826\",\"HarvestItemId\":\"20\"}","{\"CropId\":\"Corn\",\"SeedItemId\":\"11\",\"Stage2Day\":\"4\",\"Stage3Day\":\"8\",\"MaxDryDays\":\"3\",\"Stage1UnwateredTileId\":\"2830\",\"Stage1WateredTileId\":\"2831\",\"Stage2UnwateredTileId\":\"2832\",\"Stage2WateredTileId\":\"2833\",\"Stage2DryTileId\":\"2834\",\"Stage3TileId\":\"2835\",\"DeadCropTileId\":\"2836\",\"HarvestItemId\":\"21\"}"]
  *
  * @help
@@ -54,6 +63,28 @@
  * at runtime. The logic below determines the correct Tile ID but requires 
  * a function call to update the map's visual layer.
  *
+ * @command FarmAction
+ * @text Farm Action
+ * @desc Performs a farming action at the player’s tile.
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Till
+ * @value till
+ * @option Plant
+ * @value plant
+ * @option Water
+ * @value water
+ * @option Harvest
+ * @value harvest
+ * @desc Which farming action to perform.
+ *
+ * @arg cropId
+ * @text Crop ID (if planting)
+ * @type string
+ * @default
+ * @desc ONLY used when the action is Plant. Example: Wheat
  */
 /*~struct~Crop:
  * @param CropId
@@ -136,41 +167,123 @@
  */
 
 (() => {
-    const PLUGIN_NAME = "FarmingSystem_MZ_v1";
+    const PLUGIN_NAME = "FarmingSystem_MZ_v2";
 
-    // --- 1. Parameter Initialization and Crop Data Mapping ---
+    // --- 1. Parameter Initialization, JSON Loading, and Crop Data Mapping ---
 
     const parameters = PluginManager.parameters(PLUGIN_NAME);
-    const FarmlandRegionId = Number(parameters.FarmlandRegionId || 10);
-	const UntilledFarmlandTileId = Number(parameters.UntilledFarmlandTileId || 0);
-    const TilledUnseededUnwateredTileId = Number(parameters.TilledUnseededUnwateredTileId || 2816);
-    const TilledUnseededWateredTileId = Number(parameters.TilledUnseededWateredTileId || 2817);
+    // This variable will hold the parsed content of data/FarmingConfig.json
+    // It is populated by the DataManager hook below.
+    ExternalCropData = null; 
+	const LoadJson = parameters.LoadJson === "true";
     
-    // Map crop parameter array into an easily searchable object
+	// 1a. General Settings (Declared as 'let' and initialized within setupCropConfiguration)
+	let FarmlandRegionId = 10; // Default fallback
+	let UntilledFarmlandTileId = 0; // Default fallback
+	let TilledUnseededUnwateredTileId = 2816; // Default fallback
+	let TilledUnseededWateredTileId = 2817; // Default fallback
+    
+    // 1b. The final merged crop dictionary
     const CropDefinitions = {};
-    const cropParams = JSON.parse(parameters.Crops || "[]");
-    for (const cropData of cropParams) {
-        const data = JSON.parse(cropData);
-        CropDefinitions[data.CropId] = {
-            id: data.CropId,
-            seedId: Number(data.SeedItemId),
-            stage2Day: Number(data.Stage2Day),
-            stage3Day: Number(data.Stage3Day),
-            maxDryDays: Number(data.MaxDryDays),
-            // Stage 1 (Seeded)
-            stage1UnwateredTile: Number(data.Stage1UnwateredTileId),
-            stage1WateredTile: Number(data.Stage1WateredTileId),
-            // Stage 2 (Partial Growth)
-            stage2UnwateredTile: Number(data.Stage2UnwateredTileId),
-            stage2WateredTile: Number(data.Stage2WateredTileId),
-            stage2DryTile: Number(data.Stage2DryTileId),
-            // Stage 3 (Fully Grown)
-            stage3Tile: Number(data.Stage3TileId),
-            // Dead
-            deadTile: Number(data.DeadCropTileId),
-            harvestId: Number(data.HarvestItemId)
-        };
+    
+    // --- Custom Data Loading Hook ---
+    
+    // Alias the core DataManager load function to load our custom data file
+    const _DataManager_loadDatabase = DataManager.loadDatabase;
+    DataManager.loadDatabase = function() {
+        _DataManager_loadDatabase.call(this); // Load all default data first
+        // Load our custom JSON file into the ExternalCropData variable
+        if (LoadJson) {
+			DataManager.loadDataFile('ExternalCropData', 'FarmingConfig.json');
+		} else {
+			ExternalCropData = {}; // Mark as loaded instantly
+		}
+    };
+    
+    // Alias the core DataManager isDatabaseLoaded function to wait for our custom data
+    const _DataManager_isDatabaseLoaded = DataManager.isDatabaseLoaded;
+    DataManager.isDatabaseLoaded = function() {
+        if (!_DataManager_isDatabaseLoaded.call(this)) return false;
+        
+        // Wait until our custom data has been loaded and parsed
+        if (LoadJson && ExternalCropData === null) return false;
+
+        // Run the main configuration setup once data is loaded (only runs once)
+        if (Object.keys(CropDefinitions).length === 0) {
+            setupCropConfiguration();
+        }
+        
+        return true;
+    };
+    
+    // --- Configuration Setup Function (Runs ONLY after JSON is loaded) ---
+
+    function setupCropConfiguration() {
+		// 1. Start with Plugin Manager Settings
+        FarmlandRegionId = Number(parameters.FarmlandRegionId || FarmlandRegionId);
+        UntilledFarmlandTileId = Number(parameters.UntilledFarmlandTileId || UntilledFarmlandTileId);
+        TilledUnseededUnwateredTileId = Number(parameters.TilledUnseededUnwateredTileId || TilledUnseededUnwateredTileId);
+        TilledUnseededWateredTileId = Number(parameters.TilledUnseededWateredTileId || TilledUnseededWateredTileId);
+
+        // 2. Override with External JSON Settings (if they exist)
+        if (ExternalCropData && ExternalCropData.GeneralSettings) {
+            const external = ExternalCropData.GeneralSettings;
+            
+            // Check for existence and use the external value, otherwise keep the Plugin Manager value
+            if (external.FarmlandRegionId !== undefined) {
+                FarmlandRegionId = Number(external.FarmlandRegionId);
+            }
+            if (external.UntilledFarmlandTileId !== undefined) {
+                UntilledFarmlandTileId = Number(external.UntilledFarmlandTileId);
+            }
+            if (external.TilledUnseededUnwateredTileId !== undefined) {
+                TilledUnseededUnwateredTileId = Number(external.TilledUnseededUnwateredTileId);
+            }
+            if (external.TilledUnseededWateredTileId !== undefined) {
+                TilledUnseededWateredTileId = Number(external.TilledUnseededWateredTileId);
+            }
+        }
+        // I. Load crops from Plugin Manager parameters (base settings)
+        const pluginCropParams = JSON.parse(parameters.Crops || "[]");
+        const parseCrop = (sourceData) => ({
+			id: sourceData.CropId,
+			seedId: Number(sourceData.SeedItemId),
+			stage2Day: Number(sourceData.Stage2Day),
+			stage3Day: Number(sourceData.Stage3Day),
+			maxDryDays: Number(sourceData.MaxDryDays),
+			stage1UnwateredTile: Number(sourceData.Stage1UnwateredTileId),
+			stage1WateredTile: Number(sourceData.Stage1WateredTileId),
+			stage2UnwateredTile: Number(sourceData.Stage2UnwateredTileId),
+			stage2WateredTile: Number(sourceData.Stage2WateredTileId),
+			stage2DryTile: Number(sourceData.Stage2DryTileId),
+			stage3Tile: Number(sourceData.Stage3TileId),
+			deadTile: Number(sourceData.DeadCropTileId),
+			harvestId: Number(sourceData.HarvestItemId)
+		});
+        // II. Merge Plugin Manager crops into the dictionary
+        for (const cropString of pluginCropParams) {
+            const data = JSON.parse(cropString);
+            const cropId = data.CropId;
+            
+            // Function to parse a crop definition from either source
+            
+            CropDefinitions[cropId] = parseCrop(data);
+        }
+        
+        // III. Load and merge crops from External JSON (data/FarmingConfig.json)
+        // This iteration runs last, so it will override any matching CropId from the Plugin Manager.
+        if (ExternalCropData && ExternalCropData.Crops) {
+            for (const data of ExternalCropData.Crops) {
+                const cropId = data.CropId;
+                
+                // Use the same parser function
+                CropDefinitions[cropId] = parseCrop(data);
+                
+                // External JSON takes precedence for definitions.
+            }
+        }
     }
+
 
     // --- 2. Map Data Management and Storage Hook ---
     class FarmManager {
@@ -261,7 +374,7 @@
 				}
 			}
 
-			// --- USE SHAZ TILE CHANGER ---
+			// --- USE SHAZ TILE CHANGER (or similar) ---
 			// layerZ = 0 = ground A-layer (correct for farmland tiles)
 			const args = {
 				coordX: String(x),
