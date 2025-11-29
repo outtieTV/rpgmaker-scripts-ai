@@ -59,7 +59,7 @@ MailboxSystem.loadJson = eval(MailboxSystem.parameters["Load JSON"] || "true");
 
 // --- Plugin Data Storage & Cooldown Flag ---
 MailboxSystem._pendingMail = [];
-MailboxSystem._cooldown = false; // NEW: Flag to prevent immediate re-opening
+MailboxSystem._cooldown = false; // Flag to prevent immediate re-opening
 
 // ============================================================================
 // LOAD JSON
@@ -158,7 +158,6 @@ MailboxSystem._getGameTimeAPI = function() {
 MailboxSystem.isMailReady = function(mail) {
     const GT = MailboxSystem._getGameTimeAPI();
 
-    // If GameTime API is not available, assume mail is ready for delivery.
     if (!GT || typeof GT.getYears !== 'function') {
         return true; 
     }
@@ -181,12 +180,10 @@ MailboxSystem.isMailReady = function(mail) {
         second: mail.second || 0,
     };
 
-    // Helper function to compare time components
     const compareTime = (c, m) => c > m ? 1 : (c < m ? -1 : 0);
 
     let comparison = 0;
 
-    // Compare in descending order of time granularity (Year -> Second)
     comparison = compareTime(current.year, mailTime.year);
     if (comparison !== 0) return comparison > 0;
 
@@ -203,7 +200,7 @@ MailboxSystem.isMailReady = function(mail) {
     if (comparison !== 0) return comparison > 0;
 
     comparison = compareTime(current.second, mailTime.second);
-    return comparison >= 0; // >= check for the smallest unit (seconds)
+    return comparison >= 0;
 };
 
 /**
@@ -247,7 +244,7 @@ MailboxSystem.checkAutoOpenMailbox = function() {
 
         const scene = SceneManager._scene;
 
-        // 2. NEW: Skip auto-open if the cooldown is active
+        // 2. Skip auto-open if the cooldown is active
         if (MailboxSystem._cooldown) return;
 
         // 3. Check scene context: must be on map, not in the mailbox, and not busy
@@ -261,7 +258,7 @@ MailboxSystem.checkAutoOpenMailbox = function() {
             }
         }
     } else {
-        // NEW: If player moves off the region, clear the cooldown flag
+        // If player moves off the region, clear the cooldown flag
         if (MailboxSystem._cooldown) {
             MailboxSystem._cooldown = false;
         }
@@ -303,22 +300,24 @@ Scene_Mailbox.prototype.initialize = function() {
 Scene_Mailbox.prototype.create = function() {
     Scene_MenuBase.prototype.create.call(this);
     this.createMailListWindow();
-    this.createReadWindow();
+    this.createReadWindow(); // Now creates the command window
+    this.createBodyWindow(); // NEW: Creates the scrollable text window
     this.updateMailList(); 
 
-    // CRITICAL FIX: Activate the list window and select the first item
     this._mailListWindow.activate();
     if (this._mailListWindow.maxItems() > 0) {
         this._mailListWindow.select(0);
     }
 };
 
-// NEW: Hook into popScene to set the cooldown when the scene is closed.
+// Hook into popScene to set the cooldown when the scene is closed.
 const _Scene_Mailbox_popScene = Scene_Mailbox.prototype.popScene;
 Scene_Mailbox.prototype.popScene = function() {
     _Scene_Mailbox_popScene.call(this);
     MailboxSystem._cooldown = true;
 };
+
+// --- Window Rectangles ---
 
 Scene_Mailbox.prototype.mailListWindowRect = function() {
     const ww = Graphics.boxWidth * 0.4;
@@ -328,6 +327,7 @@ Scene_Mailbox.prototype.mailListWindowRect = function() {
     return new Rectangle(wx, wy, ww, wh);
 };
 
+// Rect for the Header and Commands (top/bottom bar of the right side)
 Scene_Mailbox.prototype.readWindowRect = function() {
     const listRect = this.mailListWindowRect();
     const ww = Graphics.boxWidth - listRect.width;
@@ -337,21 +337,46 @@ Scene_Mailbox.prototype.readWindowRect = function() {
     return new Rectangle(wx, wy, ww, wh);
 };
 
+// Rect for the Scrollable Body text (middle section of the right side)
+Scene_Mailbox.prototype.bodyWindowRect = function() {
+    const rect = this.readWindowRect();
+    const lh = this._readWindow ? this._readWindow.lineHeight() : 36;
+    const headerLines = 3; // Subject, From, Time
+    const commandLines = 1; // Close, Delete commands
+
+    const wy = lh * headerLines + this._readWindow.padding * 2;
+    const wh = rect.height - wy - (lh * commandLines + this._readWindow.padding * 2);
+
+    return new Rectangle(rect.x, wy, rect.width, wh);
+};
+
+// --- Window Creation ---
+
 Scene_Mailbox.prototype.createMailListWindow = function() {
     const rect = this.mailListWindowRect();
     this._mailListWindow = new Window_MailList(rect);
     this._mailListWindow.setHandler('ok', this.onMailListOk.bind(this));
-    // The popScene handler is what calls the NEW cooldown flag
     this._mailListWindow.setHandler('cancel', this.popScene.bind(this)); 
     this.addWindow(this._mailListWindow);
 };
 
+// Renamed from createReadWindow to createCommandWindow for clarity
 Scene_Mailbox.prototype.createReadWindow = function() {
     const rect = this.readWindowRect();
-    this._readWindow = new Window_ReadMail(rect);
+    // Renamed the class from Window_ReadMail to Window_MailCommands
+    this._readWindow = new Window_MailCommands(rect); 
     this._readWindow.deactivate();
     this._readWindow.hide();
     this.addWindow(this._readWindow);
+};
+
+// NEW: Create the scrollable body window
+Scene_Mailbox.prototype.createBodyWindow = function() {
+    const rect = this.bodyWindowRect();
+    this._bodyWindow = new Window_MailBody(rect);
+    this._bodyWindow.deactivate();
+    this._bodyWindow.hide();
+    this.addWindow(this._bodyWindow);
 };
 
 Scene_Mailbox.prototype.updateMailList = function() {
@@ -366,12 +391,18 @@ Scene_Mailbox.prototype.onMailListOk = function() {
             mail.read = true;
             this._mailListWindow.refresh(); 
         }
+        
+        // Pass mail to both windows
         this._readWindow.setMail(mail);
+        this._bodyWindow.setMail(mail); // NEW: Set mail body text
+
         this._readWindow.setHandler('cancel', this.onReadCancel.bind(this));
         this._readWindow.setHandler('delete', this.onDeleteMail.bind(this));
 
         this._readWindow.show();
-        this._readWindow.activate();
+        this._bodyWindow.show(); // Show the body window
+        
+        this._readWindow.activate(); // Command window gets initial focus
         this._mailListWindow.deactivate();
     } else {
         this._mailListWindow.activate();
@@ -381,6 +412,7 @@ Scene_Mailbox.prototype.onMailListOk = function() {
 Scene_Mailbox.prototype.onReadCancel = function() {
     this._readWindow.hide();
     this._readWindow.deactivate();
+    this._bodyWindow.hide(); // Hide the body window
     this._mailListWindow.activate();
 };
 
@@ -396,6 +428,7 @@ Scene_Mailbox.prototype.onDeleteMail = function() {
 
         this._readWindow.hide();
         this._readWindow.deactivate();
+        this._bodyWindow.hide(); // Hide the body window
         this.updateMailList();
 
         const newIndex = Math.min(index, this._mailListWindow.maxItems() - 1);
@@ -410,6 +443,9 @@ Scene_Mailbox.prototype.onDeleteMail = function() {
 // WINDOW: MAIL LIST
 // ============================================================================
 
+/**
+ * Custom Window to display the list of mail subjects.
+ */
 function Window_MailList() {
     this.initialize(...arguments);
 }
@@ -471,72 +507,194 @@ Window_MailList.prototype.drawItem = function(index) {
 };
 
 // ============================================================================
-// WINDOW: READ MAIL
+// NEW WINDOW: MAIL BODY (Scrollable Text)
 // ============================================================================
 
-function Window_ReadMail() {
+/**
+ * NEW: Custom window purely for displaying the scrollable mail content.
+ */
+function Window_MailBody() {
     this.initialize(...arguments);
 }
 
-Window_ReadMail.prototype = Object.create(Window_Command.prototype);
-Window_ReadMail.prototype.constructor = Window_ReadMail;
+Window_MailBody.prototype = Object.create(Window_Base.prototype);
+Window_MailBody.prototype.constructor = Window_MailBody;
 
-Window_ReadMail.prototype.maxItems = function() {
+Window_MailBody.prototype.initialize = function(rect) {
+    Window_Base.prototype.initialize.call(this, rect);
+    this._mail = null;
+    this._scrollY = 0;
+    this._maxTextHeight = 0;
+    this.opacity = 255;
+    this.createContents();
+};
+
+Window_MailBody.prototype.setMail = function(mail) {
+    if (this._mail !== mail) {
+        this._mail = mail;
+        this.refresh();
+    }
+};
+
+Window_MailBody.prototype.refresh = function() {
+    this.contents.clear();
+    this._scrollY = 0;
+
+    if (!this._mail) return;
+
+    // redrawMailBody() now calculates _maxTextHeight itself
+    this.redrawMailBody();
+
+    // Prevent negative scroll max
+    this._maxTextHeight = Math.max(this._maxTextHeight, this.contentsHeight());
+};
+
+
+// Redraws the text based on the current scroll position
+Window_MailBody.prototype.redrawMailBody = function() {
+    this.contents.clear();
+    if (!this._mail) return;
+
+    const text = this._mail.body || "";
+    const maxWidth = this.contentsWidth();
+    const lineHeight = this.lineHeight();
+
+    const wrappedLines = [];
+    const words = text.split(" ");
+
+    let current = "";
+
+    // Simple word-wrap algorithm
+    words.forEach(word => {
+        const test = current.length > 0 ? current + " " + word : word;
+        if (this.textWidth(test) > maxWidth) {
+            wrappedLines.push(current);
+            current = word;
+        } else {
+            current = test;
+        }
+    });
+
+    if (current.length > 0) wrappedLines.push(current);
+
+    // Calculate full height
+    this._maxTextHeight = wrappedLines.length * lineHeight;
+
+    // Draw lines respecting scrollY offset
+    this.contents.y = -this._scrollY;
+
+    let y = 0;
+    for (let i = 0; i < wrappedLines.length; i++) {
+        this.drawTextEx(wrappedLines[i], 0, y, maxWidth);
+        y += lineHeight;
+    }
+};
+
+Window_MailBody.prototype.update = function() {
+    Window_Base.prototype.update.call(this);
+    if (this.visible && this._mail) {
+        this.updateScrolling();
+    }
+};
+
+Window_MailBody.prototype.updateScrolling = function() {
+    const scrollAmount = 8; // Pixels per step
+
+    if (Input.isPressed('down')) {
+        this._scrollY += scrollAmount;
+        if (this._scrollY > this._maxScrollY()) {
+            this._scrollY = this._maxScrollY();
+        }
+        this.redrawMailBody();
+    }
+    if (Input.isPressed('up')) {
+        this._scrollY -= scrollAmount;
+        if (this._scrollY < 0) {
+            this._scrollY = 0;
+        }
+        this.redrawMailBody();
+    }
+    // Mouse wheel scrolling
+    const wheelY = Input.wheelY;
+    if (wheelY !== 0) {
+        this._scrollY += wheelY * scrollAmount;
+        this._scrollY = this._scrollY.clamp(0, this._maxScrollY());
+        this.redrawMailBody();
+    }
+};
+
+Window_MailBody.prototype._maxScrollY = function() {
+    return Math.max(0, this._maxTextHeight - this.contentsHeight());
+};
+
+// ============================================================================
+// WINDOW: MAIL COMMANDS (formerly Window_ReadMail)
+// ============================================================================
+
+/**
+ * Custom Window to display the mail header and commands (no body text now).
+ */
+function Window_MailCommands() {
+    this.initialize(...arguments);
+}
+
+Window_MailCommands.prototype = Object.create(Window_Command.prototype);
+Window_MailCommands.prototype.constructor = Window_MailCommands;
+
+Window_MailCommands.prototype.maxItems = function() {
     return this._list ? this._list.length : 0;
 };
 
-Window_ReadMail.prototype.initialize = function(rect) {
+Window_MailCommands.prototype.initialize = function(rect) {
     Window_Command.prototype.initialize.call(this, rect);
     this._mail = null;
     this.opacity = 255;
 };
 
-Window_ReadMail.prototype.setMail = function(mail) {
+Window_MailCommands.prototype.setMail = function(mail) {
     this._mail = mail;
     this.refresh();
 };
 
-Window_ReadMail.prototype.makeCommandList = function() {
+Window_MailCommands.prototype.makeCommandList = function() {
     this.addCommand("Close", "cancel");
     this.addCommand("Delete", "delete");
 };
 
-Window_ReadMail.prototype.refresh = function() {
+Window_MailCommands.prototype.refresh = function() {
+    // Clear the whole window content area (including commands)
     this.contents.clear();
-
     if (!this._mail) return;
 
+    // Rebuild the command list and set contents size
     this.clearCommandList();
     this.makeCommandList();
     this.createContents();
 
     const mail = this._mail;
-    const bodyText = mail.body || "No body content.";
     const lh = this.lineHeight();
-    const headerH = lh * 4;
 
-    // --- Header ---
+    // --- Draw Header in the top section ---
     this.drawText("Subject: " + (mail.subject || ""), 0, 0, this.contents.width, "left");
     this.drawText("From: " + (mail.sender || "Unknown"), 0, lh, this.contents.width, "left");
 
     const timestamp = `${mail.year}/${String(mail.month).padStart(2,'0')}/${String(mail.day).padStart(2,'0')} ${String(mail.hour).padStart(2,'0')}:${String(mail.minute).padStart(2,'0')}`;
     this.drawText("Time: " + timestamp, 0, lh * 2, this.contents.width, "left");
 
-    // Separator
+    // Separator line between header and body area
     this.contents.fillRect(0, lh * 3 - 1, this.contents.width, 1, ColorManager.normalColor());
 
-    // --- Body ---
-    const bodyY = headerH;
-    const bodyW = this.contents.width;
-    this.drawTextEx(bodyText, 0, bodyY, bodyW);
-
-    // --- Commands ---
+    // Separator line between body area and commands
+    const commandY = this.contentsHeight() - this.lineHeight();
+    this.contents.fillRect(0, commandY - 1, this.contents.width, 1, ColorManager.normalColor());
+    
+    // --- Draw Commands in the bottom section ---
     this.repositionCommands();
     this.drawAllItems();
 };
 
 /** Repositions the commands to the bottom of the window. */
-Window_ReadMail.prototype.repositionCommands = function() {
+Window_MailCommands.prototype.repositionCommands = function() {
     const y = this.contentsHeight() - this.lineHeight();
     this._list.forEach(command => {
         command.y = y;
@@ -544,14 +702,14 @@ Window_ReadMail.prototype.repositionCommands = function() {
 };
 
 /** Ensures command items are drawn at the bottom. */
-Window_ReadMail.prototype.drawItem = function(index) {
+Window_MailCommands.prototype.drawItem = function(index) {
     const rect = this.itemRectWithPadding(index);
     rect.y = this.contentsHeight() - this.lineHeight(); // Force Y position to bottom
     this.drawBackgroundRect(rect);
     this.drawText(this.commandName(index), rect.x, rect.y, rect.width, this.itemTextAlign());
 };
 
-Window_ReadMail.prototype.itemRectWithPadding = function(index) {
+Window_MailCommands.prototype.itemRectWithPadding = function(index) {
     const max = this.maxItems();
     const width = this.contents.width / max;
     const rect = new Rectangle(0, 0, width, this.lineHeight());
