@@ -1,6 +1,6 @@
 /*:
  * @target MZ
- * @plugindesc [MZ] Adds a time-sensitive, persistent mailbox system to the game.
+ * @plugindesc [MZ] Adds a time-sensitive, persistent mailbox system with auto-open on region trigger.
  * @author Gemini RPG Dev
  *
  * @param Gametime Plugin Name
@@ -42,18 +42,16 @@
  * @desc Closes the mailbox UI and returns to the game map.
  *
  * ---------------------------------------------------------------------------
- * Configuration via JSON (New Feature)
+ * Auto-Open Feature (New)
  * ---------------------------------------------------------------------------
- * The MailData.json file can now contain a top-level 'configuration' object
- * to override the Gametime Plugin Name and Region ID set in the Plugin Manager.
+ * This plugin now automatically opens the mailbox scene whenever the player
+ * steps onto a tile marked with the configured Region ID.
  *
  * ---------------------------------------------------------------------------
- * Setup & Usage
+ * Configuration via JSON
  * ---------------------------------------------------------------------------
- * 1. Ensure the Gametime plugin (e.g., 'GameTime_MZ_v1.js') is loaded BEFORE this plugin.
- * 2. If 'Load JSON' is true, create a file named 'data/MailData.json'
- * in your project's data folder with the required mail structure.
- * 3. Use the structure provided in the documentation below.
+ * The MailData.json file can contain a top-level 'configuration' object
+ * to override the Gametime Plugin Name and Region ID set in the Plugin Manager.
  */
 
 // Global alias for the plugin
@@ -66,12 +64,6 @@ MailboxSystem.mailboxRegionId = Number(MailboxSystem.parameters["Region ID"] || 
 MailboxSystem.loadJson = eval(MailboxSystem.parameters["Load JSON"] || "true");
 
 // --- Plugin Data Storage ---
-
-/**
- * Stores the pending mail definitions loaded from JSON or added via other means.
- * Mail items are moved from here to Game_System.mailbox.inbox when time criteria are met.
- * @type {Array<Object>}
- */
 MailboxSystem._pendingMail = [];
 
 /**
@@ -104,7 +96,6 @@ MailboxSystem.loadMailData = function() {
                 const mailArray = Array.isArray(data.mail) ? data.mail : [];
                 MailboxSystem._pendingMail = mailArray;
                 
-                // Mark all pending mail as unread initially.
                 MailboxSystem._pendingMail.forEach(mail => {
                     mail.read = false;
                     mail.deleted = false;
@@ -131,12 +122,6 @@ MailboxSystem.loadMailData = function() {
 
 // --- Game_System Extensions for Persistence ---
 
-/**
- * Initialize mailbox persistence data on new game.
- * mailbox object contains:
- * - inbox: Array of mail objects the player has received.
- * - deletedMailIds: Array of unique IDs for mail that has been deleted.
- */
 const _Game_System_initialize = Game_System.prototype.initialize;
 Game_System.prototype.initialize = function() {
     _Game_System_initialize.call(this);
@@ -150,19 +135,12 @@ Game_System.prototype.initialize = function() {
 
 /**
  * Compares the current game time with a mail item's timestamp.
- * @param {Object} mail - The mail object with time properties (year, month, day, hour, minute, second).
- * @returns {boolean} True if the current game time meets or exceeds the mail's timestamp.
  */
 MailboxSystem.isMailReady = function(mail) {
-    // Check for the GameTimeManager object exposed by the GameTime plugin.
-    // The name is taken from MailboxSystem.gametimePlugin (which might be 'GameTime_MZ_v1' or 'GameTimeManager').
-    // Since the actual time plugin exposes the API on 'GameTimeManager', we prioritize that.
+    // Correctly reference the global GameTimeManager object (as fixed previously)
     const GameTime = window.GameTimeManager; 
     
     if (!GameTime || typeof GameTime.getYears !== 'function') {
-        // Fallback to the configured name if GameTimeManager isn't available, but issue a specific warning.
-        // The original Gametime plugin provided exposes its API under GameTimeManager, 
-        // but its class is named GameTimeManager.
         console.warn(`[MailboxSystem] Game Time API (GameTimeManager) not found. Is '${MailboxSystem.gametimePlugin}' loaded BEFORE this plugin? Skipping time check.`);
         return false;
     }
@@ -219,10 +197,8 @@ MailboxSystem.checkMailDelivery = function() {
     const deliveredMail = [];
     const newPendingMail = [];
 
-    // Process pending mail
     for (const mail of MailboxSystem._pendingMail) {
         if (MailboxSystem.isMailReady(mail)) {
-            // Assign a unique ID for persistence tracking (deletion/read status)
             mail.mailId = mail.mailId || Date.now() + Math.random();
             deliveredMail.push(mail);
         } else {
@@ -230,10 +206,8 @@ MailboxSystem.checkMailDelivery = function() {
         }
     }
 
-    // Update the pending list to only include mail not yet delivered
     MailboxSystem._pendingMail = newPendingMail;
 
-    // Add delivered mail to the inbox, avoiding duplicates if possible
     deliveredMail.forEach(mail => {
         if (!$gameSystem.mailbox.inbox.find(m => m.mailId === mail.mailId) && 
             !$gameSystem.mailbox.deletedMailIds.includes(mail.mailId)) {
@@ -246,17 +220,40 @@ MailboxSystem.checkMailDelivery = function() {
     }
 };
 
-// Hook into the scene update loop to regularly check for new mail
-const _Scene_Map_update = Scene_Map.prototype.update;
-Scene_Map.prototype.update = function() {
-    _Scene_Map_update.call(this);
-    // Check for mail delivery every 60 frames (approx 1 second)
-    if (Graphics.frameCount % 60 === 0) {
-        MailboxSystem.checkMailDelivery();
+/**
+ * NEW: Checks if the player is on the mailbox region and automatically opens the UI.
+ */
+MailboxSystem.checkAutoOpenMailbox = function() {
+    // 1. Check if the player is currently on the designated Region ID
+    if ($gamePlayer.regionId() === MailboxSystem.mailboxRegionId) {
+        // 2. Check if we are already in the mailbox scene or if the scene transition is busy
+        const scene = SceneManager._scene;
+		if (!(scene instanceof Scene_Mailbox) && !scene.isBusy()) {
+            // 3. Prevent opening the mailbox during movement
+            if (!$gamePlayer.isMoving()) {
+                SceneManager.push(Scene_Mailbox);
+                // Halt player movement immediately
+                $gamePlayer._stopCount = 1; // Keeping user's specific stop code
+            }
+        }
     }
 };
 
-// --- Mailbox UI Windows ---
+// Hook into the scene update loop to regularly check for new mail AND auto-open
+const _Scene_Map_update = Scene_Map.prototype.update;
+Scene_Map.prototype.update = function() {
+    _Scene_Map_update.call(this);
+    
+    // Check for mail delivery (e.g., every 60 frames)
+    if (Graphics.frameCount % 60 === 0) {
+        MailboxSystem.checkMailDelivery();
+    }
+    
+    // Check for auto-open every frame
+    MailboxSystem.checkAutoOpenMailbox();
+};
+
+// --- Mailbox UI Windows (Rest of the UI logic remains the same) ---
 
 /**
  * A custom Scene class to manage the mailbox UI.
@@ -322,10 +319,9 @@ Scene_Mailbox.prototype.updateMailList = function() {
 Scene_Mailbox.prototype.onMailListOk = function() {
     const mail = this._mailListWindow.selectedMail();
     if (mail) {
-        // Mark as read and update persistence
         if (!mail.read) {
             mail.read = true;
-            this._mailListWindow.refresh(); // Update the list display
+            this._mailListWindow.refresh();
         }
         this._readWindow.setMail(mail);
         this._readWindow.setHandler('cancel', this.onReadCancel.bind(this));
@@ -349,21 +345,17 @@ Scene_Mailbox.prototype.onDeleteMail = function() {
     const index = this._mailListWindow.index();
     const mail = this._mailListWindow.selectedMail();
     if (mail) {
-        // 1. Add mailId to the deleted list for persistence
         if (!$gameSystem.mailbox.deletedMailIds.includes(mail.mailId)) {
              $gameSystem.mailbox.deletedMailIds.push(mail.mailId);
         }
-        // 2. Remove from active inbox
         $gameSystem.mailbox.inbox.splice(index, 1);
         
-        // 3. Update UI state
         this._readWindow.hide();
         this._readWindow.deactivate();
-        this.updateMailList(); // Re-draw and re-index the list
+        this.updateMailList();
         this._mailListWindow.select(Math.min(index, this._mailListWindow.maxItems() - 1));
         this._mailListWindow.activate();
     } else {
-        // If mail was somehow null, just return to list
         this._readWindow.hide();
         this._readWindow.deactivate();
         this._mailListWindow.activate();
@@ -387,7 +379,7 @@ Window_MailList.prototype.initialize = function(rect) {
 };
 
 Window_MailList.prototype.setupMailList = function(mailArray) {
-    this._mailList = mailArray.slice().reverse(); // Show newest mail first
+    this._mailList = mailArray.slice().reverse();
 };
 
 Window_MailList.prototype.maxItems = function() {
@@ -403,27 +395,24 @@ Window_MailList.prototype.drawItem = function(index) {
     const mail = this._mailList[index];
     if (mail) {
         const rect = this.itemLineRect(index);
-        const iconBoxWidth = this.innerHeight / this.maxItems() * 0.8; // Space for icon/read status
+        const iconBoxWidth = this.innerHeight / this.maxItems() * 0.8;
         
         this.resetTextColor();
         
-        // Unread status indicator
         if (!mail.read) {
             this.changeTextColor(ColorManager.crisisColor());
-            this.drawText("•", rect.x, rect.y, iconBoxWidth, "left"); // Simple bullet point
+            this.drawText("•", rect.x, rect.y, iconBoxWidth, "left");
             this.changeTextColor(ColorManager.normalColor());
         }
 
-        // Subject text
         const textX = rect.x + iconBoxWidth;
         const textW = rect.width - iconBoxWidth;
         const subject = mail.subject || "No Subject";
         
-        // Use different color for unread mail subject
         if (!mail.read) {
-            this.changeTextColor(ColorManager.textColor(0)); // Black/Default for emphasis
+            this.changeTextColor(ColorManager.textColor(0));
         } else {
-             this.changeTextColor(ColorManager.textColor(7)); // Lighter gray for read mail
+             this.changeTextColor(ColorManager.textColor(7));
         }
         
         this.drawText(subject, textX, rect.y, textW);
@@ -440,11 +429,16 @@ function Window_ReadMail() {
 Window_ReadMail.prototype = Object.create(Window_Command.prototype);
 Window_ReadMail.prototype.constructor = Window_ReadMail;
 
+// FIX: Add safe maxItems override to prevent 'length' of undefined error
+Window_ReadMail.prototype.maxItems = function() {
+    return this._list ? this._list.length : 0;
+};
+
 Window_ReadMail.prototype.initialize = function(rect) {
     Window_Command.prototype.initialize.call(this, rect);
     this._mail = null;
-    this._page = 0; // For body scrolling/pagination
-    this.opacity = 255; // Make the background solid
+    this._page = 0;
+    this.opacity = 255;
 };
 
 Window_ReadMail.prototype.setMail = function(mail) {
@@ -464,13 +458,12 @@ Window_ReadMail.prototype.refresh = function() {
 
     const mail = this._mail;
     const bodyText = mail.body || "No body content.";
-    const headerH = this.lineHeight() * 4; // Space for sender, subject, time
+    const headerH = this.lineHeight() * 4;
 
     // --- Draw Header ---
     this.drawText("Subject: " + (mail.subject || ""), 0, 0, this.contents.width, "left");
     this.drawText("From: " + (mail.sender || "Unknown"), 0, this.lineHeight(), this.contents.width, "left");
     
-    // Format timestamp: YYYY/MM/DD HH:MM
     const timestamp = `${mail.year}/${String(mail.month).padStart(2, '0')}/${String(mail.day).padStart(2, '0')} ${String(mail.hour).padStart(2, '0')}:${String(mail.minute).padStart(2, '0')}`;
     this.drawText("Time: " + timestamp, 0, this.lineHeight() * 2, this.contents.width, "left");
     
@@ -481,17 +474,13 @@ Window_ReadMail.prototype.refresh = function() {
     const bodyY = headerH;
     const bodyW = this.contents.width;
     
-    // Use drawTextEx to handle text codes and wrap the body content
     this.drawTextEx(bodyText, 0, bodyY, bodyW);
     
-    // Since this window is based on Window_Command, we need to manually adjust 
-    // the command area to the bottom.
     this.repositionCommands();
     this.drawAllItems();
 };
 
 Window_ReadMail.prototype.repositionCommands = function() {
-    // The command window is drawn at the bottom
     const y = this.contentsHeight() - this.lineHeight(); 
     this._list.forEach(command => {
         command.y = y;
@@ -499,15 +488,13 @@ Window_ReadMail.prototype.repositionCommands = function() {
 };
 
 Window_ReadMail.prototype.drawItem = function(index) {
-    // Override drawItem to position commands at the very bottom
     const rect = this.itemRectWithPadding(index);
-    rect.y = this.contentsHeight() - this.lineHeight(); // Force command drawing to the bottom
+    rect.y = this.contentsHeight() - this.lineHeight();
     this.drawBackgroundRect(rect);
     this.drawText(this.commandName(index), rect.x, rect.y, rect.width, this.itemTextAlign());
 };
 
 Window_ReadMail.prototype.itemRectWithPadding = function(index) {
-    // Adjust command positioning for multiple buttons at the bottom
     const max = this.maxItems();
     const width = this.contents.width / max;
     const rect = new Rectangle(0, 0, width, this.lineHeight());
@@ -518,26 +505,19 @@ Window_ReadMail.prototype.itemRectWithPadding = function(index) {
 // --- Plugin Command Handlers ---
 
 /**
- * Opens the Mailbox UI.
+ * Opens the Mailbox UI (still available for manual event calls).
  */
 PluginManager.registerCommand("MailboxSystem", "checkMail", args => {
     SceneManager.push(Scene_Mailbox);
 });
 
-/**
- * Placeholder for readLetter command (logic handled by UI selection).
- */
 PluginManager.registerCommand("MailboxSystem", "readLetter", args => {
-    // Logic handled by Scene_Mailbox's onMailListOk method.
+    // UI selection handles this
 });
 
-/**
- * Executes 'deleteLetter' logic.
- */
 PluginManager.registerCommand("MailboxSystem", "deleteLetter", args => {
     const scene = SceneManager._scene;
     if (scene instanceof Scene_Mailbox) {
-        // Trigger the delete logic in the current Scene_Mailbox
         scene.onDeleteMail();
     }
 });
@@ -546,17 +526,13 @@ PluginManager.registerCommand("MailboxSystem", "deleteLetter", args => {
  * Closes the Mailbox UI.
  */
 PluginManager.registerCommand("MailboxSystem", "closeMail", args => {
-    if (SceneManager.isCurrentScene(Scene_Mailbox)) {
-        SceneManager.pop();
-    }
+	if (SceneManager._scene instanceof Scene_Mailbox) {
+		SceneManager.pop();
+	}
 });
 
 // --- Player Region Check (Utility) ---
 
-/**
- * Function to check if the player is on the mailbox region.
- * Uses the MailboxSystem.mailboxRegionId which may have been overridden by JSON.
- */
 MailboxSystem.playerOnMailboxRegion = function() {
     return $gamePlayer.regionId() === MailboxSystem.mailboxRegionId;
 };
