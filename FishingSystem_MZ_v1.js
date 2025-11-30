@@ -325,19 +325,41 @@
      * Determines the fishing habitat based on the player's current region ID.
      * @returns {string|null} The habitat type ("freshwater", "river", "saltwater") or null.
      */
-    function getCurrentHabitat() {
-        if (!$gamePlayer) return null;
-        const regionId = $gamePlayer.regionId();
-        
-        if (regionId === params.regionFreshwater) {
-            return 'freshwater';
-        } else if (regionId === params.regionRiver) {
-            return 'river';
-        } else if (regionId === params.regionOcean) {
-            return 'saltwater';
-        }
-        return null; // Not a fishing spot
-    }
+	function getFacingRegionId() {
+		const x = $gamePlayer.x + $gamePlayer.directionX();
+		const y = $gamePlayer.y + $gamePlayer.directionY();
+		return $gameMap.regionId(x, y);
+	}
+
+	function getCurrentHabitat() {
+		if (!$gamePlayer) return null;
+
+		// Region under player
+		const playerRegionId = $gameMap.regionId($gamePlayer.x, $gamePlayer.y);
+
+		// Region of tile being faced
+		const facingRegionId = getFacingRegionId();
+
+		// Prevent fishing if player is standing on a fishing region themselves
+		if (
+			playerRegionId === params.regionFreshwater ||
+			playerRegionId === params.regionRiver ||
+			playerRegionId === params.regionOcean
+		) {
+			return null; // Player standing *in* the water
+		}
+
+		// Determine habitat based on **facing** region
+		if (facingRegionId === params.regionFreshwater) {
+			return 'freshwater';
+		} else if (facingRegionId === params.regionRiver) {
+			return 'river';
+		} else if (facingRegionId === params.regionOcean) {
+			return 'saltwater';
+		}
+
+		return null; // Not a fishing spot
+	}
 
     PluginManager.registerCommand(PLUGIN_NAME, 'Cast', args => {
         _activeHabitat = getCurrentHabitat();
