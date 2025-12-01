@@ -2,6 +2,14 @@
  * @target MZ
  * @plugindesc v1.0.1 - Adds a fully-featured, draggable (optional), savable 10-slot hot-bar (keys 1-0) with a simple API and expanded Plugin Commands.
  *
+ * @param loadJson
+ * @text Load JSON?
+ * @type boolean
+ * @on Yes
+ * @off No
+ * @desc If true, the plugin will attempt to load hotbar data from an external JSON file.
+ * @default false
+ *
  * @param slotSize
  * @text Slot Size
  * @type number
@@ -218,6 +226,7 @@
 
     // Parse Plugin Parameters
     const parameters = PluginManager.parameters(PLUGIN_NAME);
+	const LoadJson = (parameters.loadJson === "true");
     const SlotSize = Number(parameters.slotSize || 48);
     const Spacing = Number(parameters.spacing || 4);
     const Margin = Number(parameters.margin || 12);
@@ -230,6 +239,9 @@
     // --- 2. Hotbar Data Manager (Singleton) ---
     class HotbarManager {
         static ensureData() {
+			if (LoadJson) {
+				HotbarManager.loadExternalJson();
+			}
             if (!$gameSystem._hotbarData) {
                 $gameSystem._hotbarData = new Array(HOTBAR_SLOTS).fill(null);
             }
@@ -245,6 +257,33 @@
                 $gameSystem._hotbarActiveSlotIndex = -1; // -1 means no slot is explicitly active
             }
         }
+		
+		static loadExternalJson() {
+			const path = require("path");
+			const fs = require("fs");
+
+			const filePath = path.join(process.cwd(), "data/hotbar.json");
+
+			try {
+				if (fs.existsSync(filePath)) {
+					const content = fs.readFileSync(filePath, "utf8");
+					const data = JSON.parse(content);
+
+					if (Array.isArray(data.slots)) {
+						$gameSystem._hotbarData = data.slots;
+					}
+					if (data.activeSlot !== undefined) {
+						$gameSystem._hotbarActiveSlotIndex = data.activeSlot;
+					}
+					console.log("[Hotbar] Loaded JSON successfully.");
+				} else {
+					console.warn("[Hotbar] JSON file not found:", filePath);
+				}
+
+			} catch (err) {
+				console.error("[Hotbar] Failed to load JSON:", err);
+			}
+		}
 
         static getSlotItem(index) {
             this.ensureData();
