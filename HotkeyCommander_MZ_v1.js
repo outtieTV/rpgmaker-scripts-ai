@@ -35,17 +35,18 @@
  *   }
  * ]
  *
+ * @param loadJson
+ * @text Load JSON File
+ * @desc If true, attempts to load bindings from data/HotkeyCommander.json
+ * @type boolean
+ * @default true
+ *
  * @param hotkeyBindings
  * @text Hotkey Bindings
  * @desc List of bindings defined in the editor.
  * @type struct<Binding>[]
  * @default []
  *
- * @param loadJson
- * @text Load JSON File
- * @desc If true, attempts to load bindings from data/HotkeyCommander.json
- * @type boolean
- * @default true
  */
 
 /*~struct~Binding:
@@ -231,4 +232,3 @@
         }
     };
 })();
-
