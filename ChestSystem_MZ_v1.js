@@ -3,18 +3,6 @@
  * @plugindesc Region-Based Persistent Chest Inventory System
  * @author OuttieTV
  *
- * @param Region Chest Map
- * @text Region-to-Chest Mapping
- * @type struct<RegionMap>[]
- * @desc Define which Region ID maps to a specific Chest Size and its default graphic Tile ID.
- * @default []
- *
- * @param Chest Type Settings
- * @text Chest Size Properties
- * @type struct<ChestType>[]
- * @desc Define properties (e.g., max capacity) for each Chest Size (e.g., 'small', 'large').
- * @default []
- *
  * @param Load JSON?
  * @text Load External JSON?
  * @type boolean
@@ -28,6 +16,18 @@
  * @dir data
  * @desc Path to the external JSON file (e.g., data/ChestConfig.json).
  * @default data/ChestConfig.json
+ *
+ * @param Region Chest Map
+ * @text Region-to-Chest Mapping
+ * @type struct<RegionMap>[]
+ * @desc Define which Region ID maps to a specific Chest Size and its default graphic Tile ID.
+ * @default []
+ *
+ * @param Chest Type Settings
+ * @text Chest Size Properties
+ * @type struct<ChestType>[]
+ * @desc Define properties (e.g., max capacity) for each Chest Size (e.g., 'small', 'large').
+ * @default []
  *
  * @help
  * ===========================================================================
