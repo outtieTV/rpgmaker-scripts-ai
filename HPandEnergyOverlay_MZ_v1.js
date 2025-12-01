@@ -6,6 +6,15 @@
  * @orderAfter: CGMZ_Core
  * @orderAfter: GameTime_MZ_v1
  *
+ *
+ * @param LoadJson
+ * @text Load JSON?
+ * @type boolean
+ * @on Yes
+ * @off No
+ * @desc Whether the plugin should load data from the JSON file.
+ * @default false
+ *
  * @param EnergyStorageVariableId
  * @text Energy Storage Variable ID
  * @desc The ID of the Game Variable used to store the current Energy value.
@@ -91,10 +100,28 @@
     const parameters = PluginManager.parameters(PLUGIN_NAME);
 
     // --- Plugin Parameters ---
+	const LoadJson = parameters["LoadJson"] === "true";
     const EnergyVarId = parseInt(parameters["EnergyStorageVariableId"] || 10);
     const MaxEnergy = parseInt(parameters["MaxEnergyValue"] || 100);
     const OverlayX = parseInt(parameters["OverlayX"] || 10);
     const OverlayY = parseInt(parameters["OverlayY"] || 800);
+
+	if (LoadJson) {
+		console.log("Loading JSON...");
+		loadMyJson();
+	} else {
+		console.log("JSON loading disabled.");
+	}
+	
+	function loadMyJson() {
+		fetch("data/myData.json")
+			.then(r => r.json())
+			.then(json => {
+				console.log("Loaded JSON:", json);
+				// store, use, etc.
+			})
+			.catch(err => console.error("JSON Load Error:", err));
+	}
 
     // --- Helper Functions for Data Access ---
 
