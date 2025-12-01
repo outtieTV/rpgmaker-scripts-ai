@@ -3,6 +3,11 @@
  * @plugindesc [MZ] A robust, time-sensitive, persistent mailbox system with auto-open on region trigger.
  * @author OuttieTV
  *
+ * @param Load JSON
+ * @type boolean
+ * @default true
+ * @desc If true, mail definitions are loaded from data/MailData.json at startup.
+ *
  * @param Gametime Plugin Name
  * @type string
  * @default GameTime
@@ -14,11 +19,6 @@
  * @max 255
  * @default 10
  * @desc The Map Region ID that will trigger the mailbox UI when the player steps onto it.
- *
- * @param Load JSON
- * @type boolean
- * @default true
- * @desc If true, mail definitions are loaded from data/MailData.json at startup.
  *
  * @help
  * ---------------------------------------------------------------------------
