@@ -136,29 +136,32 @@
     let _lastHour = -1;
 
     const performDayRollover = () => {
-        if (typeof GameTime === 'undefined') return; // Exit if GameTime is missing
+        if (typeof GameTimeManager === 'undefined') return; // Exit if GameTimeManager is missing
 
         // 1. Roll to next day, set hour to 6
-        GameTime.setDays(GameTime.getDays() + 1);
-        GameTime.setHours(6);
+        GameTimeManager.setDays(GameTimeManager.getDays() + 1);
+        GameTimeManager.setHours(6);
         
         // 2. Reset resources
         setCurrentHP(getMaxHP());
         setCurrentEnergy(getMaxEnergy());
         
-        console.log("Day Rollover: Resources reset and time set to Day " + GameTime.getDays() + ", 06:00.");
+        console.log("Day Rollover: Resources reset and time set to Day " + GameTimeManager.getDays() + ", 06:00.");
     };
 
     const checkTimeAndResources = () => {
-        if (typeof GameTime === 'undefined') return;
-        
-        const currentHour = GameTime.getHours();
+        if (!GameTimeManager || GameTimeManager.getHours() === null) {
+			// Still initializing — skip until ready
+			return;
+		}
+        const time = GameTimeManager.getTimeData();
+        const currentHour = time.hour;
         
         // --- A. 02:00 Energy Reset (Check only if hour changed to 2) ---
-        if (currentHour === 2 && _lastHour !== 2) {
-            console.log("02:00 Reset: Energy forced to 0.");
-            setCurrentEnergy(0);
-        }
+		if (currentHour === 2 && getCurrentEnergy() > 0) {
+			console.log("02:00 Reset: Energy forced to 0.");
+			setCurrentEnergy(0);
+		}
         _lastHour = currentHour;
 
         // --- B. Day Rollover Check ---
@@ -171,11 +174,11 @@
     };
     
     // Hook into scene update for continuous checks
-    const _Scene_Map_update = Scene_Map.prototype.update;
-    Scene_Map.prototype.update = function() {
-        _Scene_Map_update.call(this);
-        checkTimeAndResources();
-    };
+	const _Scene_Map_update = Scene_Map.prototype.update;
+	Scene_Map.prototype.update = function() {
+		_Scene_Map_update.call(this);
+		checkTimeAndResources();
+	};
     
     const _Scene_Battle_update = Scene_Battle.prototype.update;
     Scene_Battle.prototype.update = function() {
