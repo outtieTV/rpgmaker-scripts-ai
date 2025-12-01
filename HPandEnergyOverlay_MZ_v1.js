@@ -1,7 +1,7 @@
 /*:
  * @target MZ
  * @plugindesc HP and Energy overlay (extends CGMZ_Core) with automatic reset logic.
- * @author YourName
+ * @author OuttieTV
  * @base CGMZ_Core
  * @orderAfter: CGMZ_Core
  * @orderAfter: GameTime_MZ_v1
@@ -23,13 +23,13 @@
  * @text Overlay X Position
  * @desc X position for the overlay window.
  * @type number
- * @default 10
+ * @default 550
  *
  * @param OverlayY
  * @text Overlay Y Position
  * @desc Y position for the overlay window.
  * @type number
- * @default 800
+ * @default 0
  *
  * @command setCurrentHP
  * @text Set Current HP
@@ -269,7 +269,7 @@
             const textY = y + 4;
             const gaugeHeight = 20;
 
-            this.drawText("Energy:", x, textY, 80, "left");
+            this.drawText("NRG:", x, textY, 80, "left");
             this.drawText(current, x + 40, textY, 60, "center");
             
             // 2. Define Gauge Position
