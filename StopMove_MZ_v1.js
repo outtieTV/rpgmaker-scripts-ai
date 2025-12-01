@@ -7,17 +7,17 @@
  * @plugindesc [v1.0.0] Prevents the player character from moving onto map tiles with specific Region IDs.
  * @author OuttieTV
  *
- * @param Blocked Regions
- * @type string
- * @default 1,3-5,8
- * @desc A comma-separated list of Region IDs and ranges to block player movement (e.g., 1,3-5,8).
- *
  * @param Load From JSON
  * @type boolean
  * @default false
  * @on Load
  * @off Use Parameter
  * @desc If TRUE, the plugin loads the list from 'data/StopMove.json' and ignores the 'Blocked Regions' parameter.
+ *
+ * @param Blocked Regions
+ * @type string
+ * @default 1,3-5,8
+ * @desc A comma-separated list of Region IDs and ranges to block player movement (e.g., 1,3-5,8).
  *
  * @help
  * ---------------------------------------------------------------------------
