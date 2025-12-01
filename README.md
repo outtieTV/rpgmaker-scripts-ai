@@ -34,4 +34,6 @@ HPandEnergyOverlay_MZ_v1.js<br />
 RMMZ plugin for Hitpoints and a new Energy Meter.<br />
 <br />
 WeatherSystem_MZ_v1.js<br />
-RMMZ plugin to control the weather.
+RMMZ plugin to control the weather.<br />
+BuildAndDecorate_MZ_v1.js<br />
+RMMZ plugin to allow players to place objects on the map.
