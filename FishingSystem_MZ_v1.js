@@ -19,6 +19,14 @@
  * @text MoveIndicatorBar
  * @desc Move the player indicator bar by a delta (floating number -0.2..0.2). Parameters: delta
  *
+ * @param CatchTimeRequired
+ * @text Catch Time (Seconds)
+ * @desc The number of seconds the player indicator must overlap the fish to successfully catch it.
+ * @type number
+ * @min 0.1
+ * @decimals 1
+ * @default 1.0
+ *
  * @help
  * FishingSystem_MZ_v1.js
  *
@@ -72,6 +80,7 @@
                 cfg.backgroundColor = String(cfg.backgroundColor || "#808080");
                 cfg.barColor = String(cfg.barColor || "#00FF00");
                 cfg.timerDuration = Number(cfg.timerDuration || 4);
+				cfg.catchTimeRequired = Number(cfg.catchTimeRequired || 1.0);
                 cfg.maxPauseTime = Number(cfg.maxPauseTime || 2);
                 cfg.regionFreshwater = Number(cfg.regionFreshwater || 0);
                 cfg.regionRiver = Number(cfg.regionRiver || 0);
@@ -343,6 +352,7 @@
             this._playerHolding = false;
             this._overlapOccurred = false;
             this._resolved = false;
+			this._successTimer = null;
 
             this._timerSprite = new Sprite(new Bitmap(220, 48));
             this._timerSprite.x = (Graphics.width - this._timerSprite.width) / 2;
@@ -409,15 +419,36 @@
 
             const overlap = !(playerBottom < fishTop || playerTop > fishBottom);
 
-            if (overlap && holding) {
-                this._overlapOccurred = true;
-            }
+			const requiredTime = this._cfg.catchTimeRequired || 1.0;
+			let overlappedSec = null;
+            //const deltaTime = Graphics.deltaTime; // Time since last frame in seconds
 
-            if (this._overlapOccurred && !holding && this._playerHolding) {
-                this._resolve(true);
-                return;
-            }
+			if (overlap) {
+				// start the timer only the first frame of overlap
+				if (this._successTimer === null) {
+					this._successTimer = performance.now();   // <-- store start time
+				}
+			} else {
+				// bars are no longer overlapping → reset so a new overlap can begin
+				this._successTimer = null;
+			}
 
+			// ----- check how long we have been overlapping ---------------
+			if (this._successTimer !== null) {
+				overlappedSec = (performance.now() - this._successTimer) / 1000;
+				console.log(overlappedSec);   // will now show 0.0, 0.1, 0.2 … seconds
+			}
+			if (overlappedSec !== null) {
+				if (overlappedSec >= requiredTime) {
+					this._resolve(true);
+					return;
+				}
+			}
+			// ----- overall timer expiration -------------------------------
+			if (this._timeLeft <= 0) {
+				this._resolve(false);
+				return;
+			}
             // expire
             if (this._timeLeft <= 0) {
                 this._resolve(false);
