@@ -150,7 +150,7 @@
         startMinigame(regionType) {
             this._inMinigame = true;
             // Proper MZ pattern: set static property on scene, then push scene
-            Scene_FishingMinigame.initFishing(regionType);
+            //Scene_FishingMinigame.initFishing(regionType);
             SceneManager.push(Scene_FishingMinigame);
         }
 
@@ -326,141 +326,114 @@
     // Scene: Scene_FishingMinigame
     // - static initFishing to pass regionType safely in MZ
     // -----------------------------------------------------
-    class Scene_FishingMinigame extends Scene_Base {
-        // static init method to store region type
-        static initFishing(regionType) {
-            this._regionType = regionType;
-        }
+	class Scene_FishingMinigame extends Scene_Base {
+		static initFishing(regionType, bgSnapshot) {
+			this._regionType = regionType;
+			this._bgSnapshot = bgSnapshot; // may be null
+		}
 
-        constructor() {
-            super();
-            // pick up the region type set by initFishing (or default)
-            this._regionType = Scene_FishingMinigame._regionType || "river";
-        }
+		constructor() {
+			super();
+			this._regionType = Scene_FishingMinigame._regionType || "river";
+			this._bgSnapshot = Bitmap.snap(SceneManager._scene);
+		}
 
-        create() {
-            super.create();
-            this._cfg = window.FishingConfig || {};
-            this._gauge = new Sprite_FishingGauge(this._cfg);
-            this._gauge.x = (Graphics.width - this._gauge.width) / 2;
-            this._gauge.y = (Graphics.height - this._gauge.height) / 2 - 20;
-            this.addChild(this._gauge);
+		create() {
+			super.create();
+			this._cfg = window.FishingConfig || {};
 
-            this._timeLeft = Number(this._cfg.timerDuration || 4);
-            this._startTime = performance.now();
+			// background
+			if (this._bgSnapshot) {
+				const bgSprite = new Sprite(this._bgSnapshot);
+				this.addChild(bgSprite);
+			} else {
+				const filler = new Sprite(new Bitmap(Graphics.width, Graphics.height));
+				filler.bitmap.fillAll(this._cfg.backgroundColor || "#404040");
+				this.addChild(filler);
+			}
 
-            this._playerHolding = false;
-            this._overlapOccurred = false;
-            this._resolved = false;
+			// gauge
+			this._gauge = new Sprite_FishingGauge(this._cfg);
+			this._gauge.x = (Graphics.width - this._gauge.width) / 2;
+			this._gauge.y = (Graphics.height - this._gauge.height) / 2 - 20;
+			this.addChild(this._gauge);
+
+			// timer display
+			this._timerSprite = new Sprite(new Bitmap(220, 48));
+			this._timerSprite.x = (Graphics.width - this._timerSprite.width) / 2;
+			this._timerSprite.y = this._gauge.y + this._gauge.height + 12;
+			this.addChild(this._timerSprite);
+
+			this._useVertical = !!this._cfg.enableVerticalMinigame;
+			if (!this._useVertical) $gameMessage.add("Press OK to attempt to catch the fish!");
+
+			this._gauge.setPlayerHolding(false);
+			this._timeLeft   = Number(this._cfg.timerDuration || 4);
+			this._startTime  = performance.now();
+			this._playerHolding = false;
+			this._resolved   = false;
 			this._successTimer = null;
+		}
 
-            this._timerSprite = new Sprite(new Bitmap(220, 48));
-            this._timerSprite.x = (Graphics.width - this._timerSprite.width) / 2;
-            this._timerSprite.y = this._gauge.y + this._gauge.height + 12;
-            this.addChild(this._timerSprite);
+		start() {
+			super.start();
+			Input.clear();
+			TouchInput.clear();
+		}
 
-            this._useVertical = String(this._cfg.enableVerticalMinigame || "true") !== "false";
+		update() {
+			super.update();
+			if (this._resolved) return;
 
-            if (!this._useVertical) {
-                $gameMessage.add("Press OK to attempt to catch the fish!");
-            }
+			const elapsed   = (performance.now() - this._startTime) / 1000;
+			this._timeLeft  = Math.max(0, Number(this._cfg.timerDuration || 4) - elapsed);
 
-            this._gauge.setPlayerHolding(false);
-        }
+			// draw timer text
+			const b = this._timerSprite.bitmap;
+			b.clear(); b.fontSize = 18;
+			b.drawText(`Time left: ${this._timeLeft.toFixed(1)}s`, 0, 0, b.width, "center");
 
-        start() {
-            super.start();
-            Input.clear();
-            TouchInput.clear();
-        }
+			if (!this._useVertical) {
+				if (Input.isTriggered('ok')) this._resolve(true);
+				else if (this._timeLeft <= 0) this._resolve(false);
+				return;
+			}
 
-        update() {
-            super.update();
-            if (this._resolved) return;
+			// vertical minigame logic …
+			const holding = Input.isPressed('ok');
+			this._gauge.setPlayerHolding(holding);
+			if (holding) this._playerHolding = true;
 
-            const elapsed = (performance.now() - this._startTime) / 1000;
-            this._timeLeft = Math.max(0, Number(this._cfg.timerDuration || 4) - elapsed);
+			const h = this._gauge.barHeight;
+			const travelP = h - this._gauge.playerBarHeight;
+			const travelF = h - this._gauge.fishBarHeight;
 
-            const b = this._timerSprite.bitmap;
-            b.clear();
-            b.fontSize = 18;
-            b.drawText(`Time left: ${this._timeLeft.toFixed(1)}s`, 0, 0, b.width, "center");
+			const playerY = this._gauge.y + 28 + Math.floor(travelP * this._gauge.playerRate());
+			const fishY   = this._gauge.y + 28 + Math.floor(travelF * this._gauge.fishRate());
 
-            if (!this._useVertical) {
-                if (Input.isTriggered('ok')) {
-                    this._resolve(true);
-                    return;
-                }
-                if (this._timeLeft <= 0) {
-                    this._resolve(false);
-                    return;
-                }
-                return;
-            }
-
-            // vertical minigame
-            const holding = Input.isPressed('ok');
-            this._gauge.setPlayerHolding(holding);
-            if (holding) this._playerHolding = true;
-
-            const h = this._gauge.barHeight;
-            const playerH = this._gauge.playerBarHeight;
-            const fishH = this._gauge.fishBarHeight;
-            const travelP = h - playerH;
-            const travelF = h - fishH;
-
-            // positions in screen coords
-            const playerY = this._gauge.y + 28 + Math.floor(travelP * this._gauge.playerRate());
-            const playerTop = playerY;
-            const playerBottom = playerY + playerH;
-            const fishY = this._gauge.y + 28 + Math.floor(travelF * this._gauge.fishRate());
-            const fishTop = fishY;
-            const fishBottom = fishY + fishH;
-
-            const overlap = !(playerBottom < fishTop || playerTop > fishBottom);
-
-			const requiredTime = this._cfg.catchTimeRequired || 1.0;
-			let overlappedSec = null;
-            //const deltaTime = Graphics.deltaTime; // Time since last frame in seconds
+			const overlap = !(playerY + this._gauge.playerBarHeight < fishY ||
+							  playerY > fishY + this._gauge.fishBarHeight);
 
 			if (overlap) {
-				// start the timer only the first frame of overlap
-				if (this._successTimer === null) {
-					this._successTimer = performance.now();   // <-- store start time
-				}
+				if (this._successTimer === null) this._successTimer = performance.now();
 			} else {
-				// bars are no longer overlapping → reset so a new overlap can begin
 				this._successTimer = null;
 			}
 
-			// ----- check how long we have been overlapping ---------------
 			if (this._successTimer !== null) {
-				overlappedSec = (performance.now() - this._successTimer) / 1000;
-				console.log(overlappedSec);   // will now show 0.0, 0.1, 0.2 … seconds
-			}
-			if (overlappedSec !== null) {
-				if (overlappedSec >= requiredTime) {
+				const overlappedSec = (performance.now() - this._successTimer) / 1000;
+				if (overlappedSec >= (this._cfg.catchTimeRequired || 1.0)) {
 					this._resolve(true);
 					return;
 				}
 			}
-			// ----- overall timer expiration -------------------------------
-			if (this._timeLeft <= 0) {
-				this._resolve(false);
-				return;
-			}
-            // expire
-            if (this._timeLeft <= 0) {
-                this._resolve(false);
-                return;
-            }
-        }
 
-        forceStop() {
-            if (!this._resolved) {
-                this._resolve(false);
-            }
-        }
+			if (this._timeLeft <= 0) this._resolve(false);
+		}
+
+		forceStop() {
+			if (!this._resolved) this._resolve(false);
+		}
 
         _resolve(success) {
             this._resolved = true;
@@ -476,7 +449,7 @@
     // -----------------------------------------------------
     // Hook Scene_Map to attempt fishing on OK (default interact)
     // -----------------------------------------------------
-    const _Scene_Map_update = Scene_Map.prototype.update;
+	const _Scene_Map_update = Scene_Map.prototype.update;
     Scene_Map.prototype.update = function() {
         _Scene_Map_update.call(this);
 
@@ -487,10 +460,45 @@
 
 			// Detect OK trigger: this is the default interaction key
 			if (Input.isTriggered('ok')) {
-				// Attempt to cast (this will show "You can't fish here." if invalid)
+				
+				// ** Capture logic starts here **
+                const player = $gamePlayer;
+                const direction = player.direction();
+                let x = player.x;
+                let y = player.y;
+                if (direction === 2) y += 1;
+                else if (direction === 4) x -= 1;
+                else if (direction === 6) x += 1;
+                else if (direction === 8) y -= 1;
+
+                const regionId = $gameMap.regionId(x, y);
+                const cfg = window.FishingConfig;
+
+                let regionType = null;
+                if (cfg) { // Ensure cfg is loaded before checking regions
+                    if (regionId === cfg.regionFreshwater) regionType = "freshwater";
+                    else if (regionId === cfg.regionRiver) regionType = "river";
+                    else if (regionId === cfg.regionOcean) regionType = "ocean";
+                }
+
+                // Only perform the snapshot if fishing is possible
+                if (window.FishingSystem && regionType) {
+                    // Capture the current screen as a bitmap
+                    const snapshot = SceneManager.snap();
+                    // Initialize the next scene *before* the push happens in attemptCast
+                    Scene_FishingMinigame.initFishing(regionType, snapshot.bitmap); 
+                    // Now attemptCast will check region and push the scene
+                    window.FishingSystem.attemptCast(false);
+                    return; // Prevent further processing in this frame
+                }
+                
+                // If fishing is not possible, call attemptCast without snapshot 
+                // so it can display "You can't fish here." message.
 				if (window.FishingSystem) {
 					window.FishingSystem.attemptCast(false);
 				}
+                // ** Capture logic ends here **
+
 			}
 		}
     };
