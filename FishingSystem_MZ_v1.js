@@ -19,13 +19,125 @@
  * @text MoveIndicatorBar
  * @desc Move the player indicator bar by a delta (floating number -0.2..0.2). Parameters: delta
  *
+ * @param LoadJSON
+ * @text Load JSON?
+ * @type boolean
+ * @on Yes
+ * @off No
+ * @default true
+ * @desc If true, loads data/FishingConfig.json. If false, only plugin parameters are used.
+ *
  * @param CatchTimeRequired
  * @text Catch Time (Seconds)
- * @desc The number of seconds the player indicator must overlap the fish to successfully catch it.
  * @type number
  * @min 0.1
  * @decimals 1
  * @default 1.0
+ * @desc Number of seconds the green bar must overlap the fish bar to succeed.
+ *
+ * @param EnableVerticalMinigame
+ * @text Use Vertical Minigame?
+ * @type boolean
+ * @on Yes
+ * @off No
+ * @default true
+ * @desc If disabled, fishing becomes a simple “Press OK to catch” system.
+ *
+ * @param MiniGameSpeed
+ * @text Player Bar Speed
+ * @type number
+ * @min 0.1
+ * @decimals 2
+ * @default 4
+ * @desc Speed multiplier for the player's moving green bar.
+ *
+ * @param FishSpeed
+ * @text Fish Bar Speed
+ * @type number
+ * @min 0.1
+ * @decimals 2
+ * @default 2
+ * @desc Speed of the fish’s blue bar.
+ *
+ * @param BackgroundColor
+ * @text Gauge Background Color
+ * @type string
+ * @default #808080
+ * @desc The color of the gauge's background fill.
+ *
+ * @param BarColor
+ * @text Player Bar Color
+ * @type string
+ * @default #00FF00
+ * @desc The color of the player (green) indicator bar.
+ *
+ * @param TimerDuration
+ * @text Timer Duration
+ * @type number
+ * @min 0.1
+ * @decimals 1
+ * @default 4
+ * @desc How many seconds the player has to catch a fish before time runs out.
+ *
+ * @param MaxPauseTime
+ * @text Max Pause Time
+ * @type number
+ * @min 0
+ * @decimals 1
+ * @default 2
+ * @desc Random cooldown after each fishing attempt (0–X seconds).
+ *
+ * @param RegionFreshwater
+ * @text Region ID: Freshwater
+ * @type number
+ * @min 0
+ * @default 0
+ * @desc Region ID for freshwater fishing spots.
+ *
+ * @param RegionRiver
+ * @text Region ID: River
+ * @type number
+ * @min 0
+ * @default 0
+ * @desc Region ID for river fishing spots.
+ *
+ * @param RegionOcean
+ * @text Region ID: Ocean
+ * @type number
+ * @min 0
+ * @default 0
+ * @desc Region ID for ocean fishing spots.
+ *
+ * @param FishData
+ * @text Fish Data
+ * @type struct<FishItem>[]
+ * @default []
+ * @desc Array of fish definitions used when LoadJSON is false.
+ *
+ * @command FishingSystemTest
+ * @text FishingSystemTest
+ * @desc Force-start the fishing minigame anywhere (ignores regions).
+ *
+ * @command cast
+ * @text Cast
+ * @desc Alias of FishingSystemTest. Forces casting.
+ *
+ * @command stop
+ * @text Stop
+ * @desc Forcibly stops the fishing minigame.
+ *
+ * @command moveIndicatorBar
+ * @text Move Indicator Bar
+ * @desc Moves the player's green bar by a delta value.
+ *
+ * @arg delta
+ * @text Delta
+ * @type number
+ * @min -0.5
+ * @max 0.5
+ * @decimals 2
+ * @default 0
+ * @desc How much to move the green indicator bar (negative = down, positive = up).
  *
  * @help
  * FishingSystem_MZ_v1.js
