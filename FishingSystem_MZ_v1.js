@@ -262,7 +262,7 @@
         startMinigame(regionType) {
             this._inMinigame = true;
             // Proper MZ pattern: set static property on scene, then push scene
-            //Scene_FishingMinigame.initFishing(regionType);
+            Scene_FishingMinigame.initFishing(regionType);
             SceneManager.push(Scene_FishingMinigame);
         }
 
