@@ -94,7 +94,7 @@
     // ------------------------------------------------------------------------
     const keyCodes = new Map([
         ["1","49"],["2","50"],["3","51"],["4","52"],["5","53"],["6","54"],["7","55"],["8","56"],
-        ["9","57"],["backspace","8"],["tab","9"],["enter","13"],["shift","16"],["ctrl","17"],
+        ["9","57"],["backspace","8"],["tab","9"],["ok","13"],["shift","16"],["ctrl","17"],
         ["alt","18"],["capslock","20"],["esc","27"],["space","32"],["arrowleft","37"],
         ["arrowup","38"],["arrowright","39"],["arrowdown","40"],["a","65"],["b","66"],
         ["c","67"],["d","68"],["e","69"],["f","70"],["g","71"],["h","72"],["i","73"],
@@ -219,7 +219,7 @@
 
         try {
             // Example message – you can remove or replace it
-            $gameMessage.add(binding.commandName.charAt(0).toUpperCase() + binding.commandName.slice(1));
+            //$gameMessage.add(binding.commandName.charAt(0).toUpperCase() + binding.commandName.slice(1));
             PluginManager.callCommand(
                 contextSelf,
                 binding.pluginName,
