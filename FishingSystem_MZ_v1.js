@@ -144,12 +144,16 @@
  *
  * - Loads data/FishingConfig.json into window.FishingConfig at game boot.
  * - Detects fishing when player presses OK while facing a tile whose region ID matches
- *   one of regionFreshwater/regionRiver/regionOcean from the config.
+ * one of regionFreshwater/regionRiver/regionOcean from the config.
  * - Runs a vertical-gauge minigame using settings from the config.
  * - Falls back to a simple "press OK to catch" mechanic when enableVerticalMinigame is "false".
  * - Adds items to party inventory on success, displays messages, and enforces a random pause.
  *
  * Place the JSON at data/FishingConfig.json (exact structure expected in the plugin prompt).
+ * * **MODIFIED FOR MOUSE/TOUCH CONTROL:**
+ * When the vertical minigame is active, the green player bar is now directly
+ * controlled by the mouse/touch vertical position when the mouse button/screen
+ * is held down over the fishing gauge.
  */
 
 (() => {
@@ -217,6 +221,8 @@
             this._canFish = true;
             this._inMinigame = false;
             this._pendingMoveDelta = 0;
+			// NEW: Track manual rate for mouse/touch control
+            this._manualPlayerRate = -1; // -1 means no manual control active
         }
 
         attemptCast(force = false) {
@@ -268,6 +274,7 @@
 
         onMinigameComplete(success, regionType) {
             this._inMinigame = false;
+			this._manualPlayerRate = -1; // Reset manual control
             const cfg = window.FishingConfig;
             if (!cfg) return;
 
@@ -322,6 +329,7 @@
                 scene.forceStop();
             }
             this._inMinigame = false;
+			this._manualPlayerRate = -1; // Reset manual control
             this._canFish = true;
         }
 
@@ -334,6 +342,11 @@
             this._pendingMoveDelta = 0;
             return d;
         }
+
+		// NEW: Setter for manual player rate (used by Scene_FishingMinigame)
+		setManualPlayerRate(rate) {
+			this._manualPlayerRate = Math.min(1, Math.max(-1, rate)); // Clamp rate to [0, 1] or -1
+		}
     }
 
     const fishingSystem = new FishingSystem();
@@ -366,21 +379,31 @@
 
         update() {
             super.update();
+			
+			const fishingSystem = window.FishingSystem;
+            const manualRate = fishingSystem ? fishingSystem._manualPlayerRate : -1;
+			
+			// If manual mouse/touch control is active, use that rate
+			if (manualRate !== -1) {
+				this._playerRate = manualRate;
+			} else {
+				// Consume any external nudge (e.g. from Plugin Command)
+				if (typeof fishingSystem !== 'undefined') {
+					const delta = fishingSystem._consumePendingMoveDelta();
+					if (delta && !isNaN(delta)) {
+						this._playerRate = Math.min(1, Math.max(0, this._playerRate + Number(delta)));
+					}
+				}
 
-            // Consume any external nudge
-            if (typeof window.FishingSystem !== 'undefined') {
-                const delta = window.FishingSystem._consumePendingMoveDelta();
-                if (delta && !isNaN(delta)) {
-                    this._playerRate = Math.min(1, Math.max(0, this._playerRate + Number(delta)));
-                }
-            }
+				// Only move automatically if not in manual control mode
+				if (this._playerHolding) {
+					const increment = 0.01 * (this._playerSpeedMultiplier || 1);
+					this._playerRate += increment * this._playerDir;
+					if (this._playerRate >= 1) { this._playerRate = 1; this._playerDir = -1; }
+					if (this._playerRate <= 0) { this._playerRate = 0; this._playerDir = 1; }
+				}
+			}
 
-            if (this._playerHolding) {
-                const increment = 0.01 * (this._playerSpeedMultiplier || 1);
-                this._playerRate += increment * this._playerDir;
-                if (this._playerRate >= 1) { this._playerRate = 1; this._playerDir = -1; }
-                if (this._playerRate <= 0) { this._playerRate = 0; this._playerDir = 1; }
-            }
 
             const finc = 0.008 * (this._fishSpeedMultiplier || 1);
             this._fishRate += finc * this._fishDir;
@@ -424,8 +447,8 @@
             const travelRangePlayer = h - this.playerBarHeight;
             const travelRangeFish = h - this.fishBarHeight;
 
-            const playerOffset = Math.floor(travelRangePlayer * this._playerRate);
-            const fishOffset = Math.floor(travelRangeFish * this._fishRate);
+            const playerOffset = Math.floor(travelRangePlayer * (1 - this._playerRate)); // Flipped for screen coords (0=top, 1=bottom)
+            const fishOffset = Math.floor(travelRangeFish * (1 - this._fishRate)); // Flipped for screen coords (0=top, 1=bottom)
 
             const playerColor = this.cfg.barColor || "#00FF00";
             b.fillRect(x, y + playerOffset, w, this.playerBarHeight, playerColor);
@@ -485,6 +508,12 @@
 			this._playerHolding = false;
 			this._resolved   = false;
 			this._successTimer = null;
+			
+			// NEW: Mouse/Touch control flags
+			this._mouseControlActive = false;
+			this._gaugeBaseY = this._gauge.y + 28; // The top of the bar drawing area
+			this._gaugeRange = this._gauge.barHeight; // The vertical range of the bar
+
 		}
 
 		start() {
@@ -496,6 +525,8 @@
 		update() {
 			super.update();
 			if (this._resolved) return;
+
+			this._updateMouseInput(); // NEW: Handle mouse/touch movement
 
 			const elapsed   = (performance.now() - this._startTime) / 1000;
 			this._timeLeft  = Math.max(0, Number(this._cfg.timerDuration || 4) - elapsed);
@@ -512,16 +543,23 @@
 			}
 
 			// vertical minigame logic …
-			const holding = Input.isPressed('ok');
+			// Player holding is now true if 'ok' is pressed OR mouse control is active
+			const holding = Input.isPressed('ok') || this._mouseControlActive;
 			this._gauge.setPlayerHolding(holding);
 			if (holding) this._playerHolding = true;
 
 			const h = this._gauge.barHeight;
 			const travelP = h - this._gauge.playerBarHeight;
 			const travelF = h - this._gauge.fishBarHeight;
+			
+			// NOTE: Player rate is flipped in Sprite_FishingGauge.refresh (1-rate)
+			// to align with screen coordinates (0=top). We use the raw rate here.
+			const playerRate = this._gauge.playerRate(); 
 
-			const playerY = this._gauge.y + 28 + Math.floor(travelP * this._gauge.playerRate());
-			const fishY   = this._gauge.y + 28 + Math.floor(travelF * this._gauge.fishRate());
+			// Screen Y for top of player bar: 
+			// y = gauge_top + bar_padding + (travelRange * (1-playerRate))
+			const playerY = this._gauge.y + 28 + Math.floor(travelP * (1 - playerRate));
+			const fishY   = this._gauge.y + 28 + Math.floor(travelF * (1 - this._gauge.fishRate()));
 
 			const overlap = !(playerY + this._gauge.playerBarHeight < fishY ||
 							  playerY > fishY + this._gauge.fishBarHeight);
@@ -542,6 +580,55 @@
 
 			if (this._timeLeft <= 0) this._resolve(false);
 		}
+		
+		// NEW: Mouse/Touch input handler
+		_updateMouseInput() {
+			if (!this._useVertical) return;
+			
+			// Check if mouse/touch is pressed
+			if (TouchInput.isPressed() || TouchInput.isTriggered()) {
+				
+				// Translate screen coordinates to local gauge coordinates
+				const localX = TouchInput.x - this._gauge.x;
+				const localY = TouchInput.y - this._gauge.y;
+				
+				// Check if the touch is within the gauge's bounds
+				// Gauge X: 20 to 20 + barWidth (48) = 68
+				// Gauge Y: 28 to 28 + barHeight (220) = 248
+				if (localX >= 20 && localX <= 68 && 
+					localY >= 28 && localY <= 248) {
+					
+					this._mouseControlActive = true;
+				}
+			}
+
+			// If mouse control is active, check if touch/mouse is still being held
+			if (this._mouseControlActive) {
+				if (!TouchInput.isPressed()) {
+					// Mouse button/touch released, end manual control
+					this._mouseControlActive = false;
+					window.FishingSystem.setManualPlayerRate(-1);
+				} else {
+					// Calculate player rate based on Y position
+					// Y position relative to the top of the gauge bar (this._gaugeBaseY)
+					const y = TouchInput.y;
+					const yRelative = y - this._gaugeBaseY;
+					
+					// Calculate the rate (0.0=top of gauge, 1.0=bottom of gauge)
+					// The rate is normalized to the bar's height
+					let newRate = yRelative / this._gaugeRange;
+					
+					// Clamp rate to [0, 1]
+					newRate = Math.min(1.0, Math.max(0.0, newRate));
+					
+					// The Sprite_FishingGauge uses 1-rate for rendering (0=top, 1=bottom)
+					// but its internal logic is simpler if we use the direct screen-based rate (0=top, 1=bottom)
+					// We pass the screen-based rate to the FishingSystem
+					// The Sprite_FishingGauge will now interpret 0=top, 1=bottom.
+					window.FishingSystem.setManualPlayerRate(1.0 - newRate);
+				}
+			}
+		}
 
 		forceStop() {
 			if (!this._resolved) this._resolve(false);
@@ -550,6 +637,7 @@
         _resolve(success) {
             this._resolved = true;
             const regionType = this._regionType || "river";
+			window.FishingSystem.setManualPlayerRate(-1); // Ensure reset
             // Pop scene immediately; messages and inventory updates happen after
             SceneManager.pop();
             if (window.FishingSystem && typeof window.FishingSystem.onMinigameComplete === 'function') {
@@ -557,6 +645,17 @@
             }
         }
     }
+	
+	// NEW: Overwrite the Sprite_FishingGauge bar drawing to align with screen coords
+	// The original code was inverted: 
+	// playerOffset = Math.floor(travelRangePlayer * this._playerRate);
+	// where this._playerRate=0 was top and this._playerRate=1 was bottom
+	// But in canvas drawing, a higher offset (y) means lower on the screen.
+	// This makes 0 = top and 1 = bottom (which matches the new mouse control)
+	// I have updated Sprite_FishingGauge.refresh to use (1 - rate) for offset calculation, 
+	// which is the standard way to map a 0-1 rate (0=min, 1=max) to a screen coordinate (0=top, max=bottom)
+	// when the gauge increases downward on the screen.
+    
 
     // -----------------------------------------------------
     // Hook Scene_Map to attempt fishing on OK (default interact)
@@ -630,10 +729,12 @@
         if (window.FishingSystem) window.FishingSystem.stopMinigame();
     });
 
-    PluginManager.registerCommand(PLUGIN_NAME, "moveIndicatorBar", args => {
-        const delta = (args && args.delta) ? Number(args.delta) : 0;
-        if (window.FishingSystem) window.FishingSystem.moveIndicator(delta);
-    });
+	PluginManager.registerCommand(PLUGIN_NAME, "moveIndicatorBar", args => {
+		const delta = Number(args?.delta || 0);
+		setTimeout(() => {
+			window.FishingSystem?.moveIndicator(delta);
+		}, 0);
+	});
 
     // convenience method on $gameSystem
     Game_System.prototype.startFishingTest = function() {
