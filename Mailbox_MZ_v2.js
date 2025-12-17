@@ -74,37 +74,86 @@ MailboxSystem._cooldown = false;
 // ============================================================================
 // DATA HANDLING
 // ============================================================================
-
 MailboxSystem.loadMailData = function () {
     MailboxSystem._pendingMail = [];
     if (!MailboxSystem.loadJson) return;
 
-    const path = "data/MailData.json";
-
-    fetch(path)
-        .then(response => {
-            if (!response.ok) throw new Error("HTTP " + response.status);
-            return response.json();
-        })
-        .then(json => {
-            const mailArray = Array.isArray(json.mail)
-                ? json.mail
-                : Array.isArray(json)
-                ? json
-                : [json];
-
-            mailArray.forEach(mail => {
-                mail.read = false;
-                mail.deleted = false;
-            });
-
-            MailboxSystem._pendingMail = mailArray;
-            console.log("Mailbox loaded:", mailArray);
-        })
-        .catch(err => {
-            console.error("Failed to load MailData.json", err);
+    // Helper to load a JSON file safely
+    const loadJsonFile = function (path) {
+        return new Promise(resolve => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", path);
+            xhr.overrideMimeType("application/json");
+            xhr.onload = function () {
+                if (xhr.status < 400) {
+                    try {
+                        resolve(JSON.parse(xhr.responseText));
+                    } catch (e) {
+                        console.error(`JSON parse error in ${path}`, e);
+                        resolve(null);
+                    }
+                } else {
+                    resolve(null);
+                }
+            };
+            xhr.onerror = () => resolve(null);
+            xhr.send();
         });
+    };
+
+    // Wait until map info exists
+    if (!$dataMapInfos) {
+        const _onLoad = DataManager.onLoad;
+        DataManager.onLoad = function (object) {
+            _onLoad.call(this, object);
+            if (object === $dataMapInfos) {
+                MailboxSystem.loadMailData();
+            }
+        };
+        return;
+    }
+
+    const promises = [];
+
+    // Loop through all maps that exist
+    $dataMapInfos.forEach(mapInfo => {
+        if (!mapInfo) return;
+
+        const mapId = String(mapInfo.id).padStart(3, "0");
+        const filePath = `data/mail/MAP${mapId}_Mail.json`;
+
+        promises.push(
+            loadJsonFile(filePath).then(data => {
+                if (!data) return;
+
+                const mails = Array.isArray(data)
+                    ? data
+                    : (Array.isArray(data.mail) ? data.mail : [data]);
+
+                mails.forEach(mail => {
+                    mail.read = false;
+                    mail.deleted = false;
+
+                    if (mail.mailId == null) {
+                        mail.mailId = `MAP${mapId}-${Date.now()}-${Math.random()}`;
+                    }
+
+                    // Default localization if omitted
+                    if (mail.mapId == null) mail.mapId = Number(mapInfo.id);
+
+                    MailboxSystem._pendingMail.push(mail);
+                });
+            })
+        );
+    });
+
+    Promise.all(promises).then(() => {
+        console.log(
+            `Mailbox system loaded ${MailboxSystem._pendingMail.length} mail items`
+        );
+    });
 };
+
 
 (function() {
     const _Scene_Boot_loadSystemImages = Scene_Boot.prototype.loadSystemImages;
