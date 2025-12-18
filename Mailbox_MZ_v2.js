@@ -325,87 +325,133 @@ Window_MailCommands.prototype = Object.create(Window_Command.prototype);
 Window_MailCommands.prototype.constructor = Window_MailCommands;
 Window_MailCommands.prototype.setMail=function(m){this._mail=m;this.refresh();}
 Window_MailCommands.prototype.clearMail=function(){this._mail=null;this.refresh();}
-Window_MailCommands.prototype.makeCommandList=function(){
-    this.addCommand("Back","cancel");
-    if(this._mail?.attachments && !this._mail.attachmentsClaimed){
-        this.addCommand("Claim","claim");
+Window_MailCommands.prototype.makeCommandList = function() {
+    if (this._mail?.attachments && !this._mail.attachmentsClaimed) {
+        this.addCommand("Claim", "claim");
+    } else {
+        // spacer so Delete goes to next row cleanly
+        this.addCommand("", "spacer", false);
     }
-    if(this._mail) this.addCommand("Delete","delete");
+	
+	this.addCommand("Back", "cancel");
+
+    if (this._mail) {
+        this.addCommand("Delete", "delete");
+    }
 };
-Window_MailCommands.prototype.maxCols = function() { return 3; };
 
-function Window_MailBody(r){this.initialize(...arguments);}
-Window_MailBody.prototype = Object.create(Window_Base.prototype);
+Window_MailCommands.prototype.maxCols = function() { return 2; };
+Window_MailCommands.prototype.itemRect = function(index) {
+    const rect = Window_Command.prototype.itemRect.call(this, index);
+
+    const command = this.commandName(index);
+    if (command === "Delete") {
+        rect.x = 0;
+        rect.width = this.contentsWidth();
+    }
+
+    return rect;
+};
+
+// ============================================================================
+// WINDOW: MAIL BODY (Selectable, Unlimited Length)
+// ============================================================================
+
+function Window_MailBody(rect) {
+    this.initialize(...arguments);
+}
+
+Window_MailBody.prototype = Object.create(Window_Selectable.prototype);
 Window_MailBody.prototype.constructor = Window_MailBody;
-Window_MailBody.prototype.setMail=function(m){this._mail=m;this.refresh();}
-Window_MailBody.prototype.clear=function(){this._mail = null;this.contents.clear();}
 
-Window_MailBody.prototype.refresh = function() {
-    this.contents.clear();
+Window_MailBody.prototype.initialize = function(rect) {
+    Window_Selectable.prototype.initialize.call(this, rect);
+    this._mail = null;
+    this._lines = [];
+    this.deactivate();
+};
+
+Window_MailBody.prototype.setMail = function(mail) {
+    this._mail = mail;
+    this.rebuildLines();
+    this.refresh();
+    this.select(0);
+    this.activate();
+};
+
+Window_MailBody.prototype.clear = function() {
+    this._mail = null;
+    this._lines = [];
+    this.refresh();
+    this.deactivate();
+};
+
+Window_MailBody.prototype.rebuildLines = function() {
+    this._lines = [];
     if (!this._mail) return;
-    
-    let y = 0;
-    const lh = this.lineHeight();
-    const padding = 10;
+
     const maxWidth = this.contentsWidth();
 
-    // Draw Header (From/Subject)
-    this.changeTextColor(ColorManager.systemColor());
-    this.drawText(`From: ${this._mail.sender || "Unknown"}`, 0, y, maxWidth);
-    y += lh;
-    this.drawText(`Subject: ${this._mail.subject || "No Subject"}`, 0, y, maxWidth);
-    y += lh + 10;
-    
-    // Horizontal Line
-    this.contents.fillRect(0, y - 5, maxWidth, 2, ColorManager.normalColor());
-    this.resetTextColor();
+    // Header
+    this._lines.push(`\\C[16]From: ${this._mail.sender || "Unknown"}\\C[0]`);
+    this._lines.push(`\\C[16]Subject: ${this._mail.subject || "No Subject"}\\C[0]`);
+    this._lines.push(""); // spacing
+    this._lines.push("----------------------------------------");
+    this._lines.push("");
 
-    // Process Word Wrapping for Body
-    const rawBody = this._mail.body || "";
-    const wrappedText = this.processWordWrap(rawBody, maxWidth);
-    
-    this.drawTextEx(wrappedText, 0, y);
+    // Body (word wrapped)
+    const wrapped = this.processWordWrap(this._mail.body || "", maxWidth);
+    const bodyLines = wrapped.split("\n");
+
+    this._lines.push(...bodyLines);
 };
 
-/**
- * Basic word-wrap utility for MZ Window_Base
- */
+Window_MailBody.prototype.maxItems = function() {
+    return this._lines.length;
+};
+
+Window_MailBody.prototype.itemHeight = function() {
+    return this.lineHeight();
+};
+
+Window_MailBody.prototype.drawItem = function(index) {
+    const rect = this.itemLineRect(index);
+    this.drawTextEx(this._lines[index], rect.x, rect.y);
+};
+
 Window_MailBody.prototype.processWordWrap = function(text, maxWidth) {
     const words = text.split(" ");
     let lines = [];
     let currentLine = "";
 
     words.forEach(word => {
-        // Handle manual newlines within the text
         if (word.includes("\n")) {
             const parts = word.split("\n");
-            parts.forEach((part, index) => {
-                const testLine = currentLine + (currentLine ? " " : "") + part;
-                if (this.textSizeEx(testLine).width > maxWidth) {
+            parts.forEach((part, i) => {
+                const test = currentLine + (currentLine ? " " : "") + part;
+                if (this.textSizeEx(test).width > maxWidth) {
                     lines.push(currentLine);
                     currentLine = part;
                 } else {
-                    currentLine = testLine;
+                    currentLine = test;
                 }
-                if (index < parts.length - 1) {
+                if (i < parts.length - 1) {
                     lines.push(currentLine);
                     currentLine = "";
                 }
             });
         } else {
-            const testLine = currentLine + (currentLine ? " " : "") + word;
-            const testWidth = this.textSizeEx(testLine).width;
-
-            if (testWidth > maxWidth && currentLine !== "") {
+            const test = currentLine + (currentLine ? " " : "") + word;
+            if (this.textSizeEx(test).width > maxWidth) {
                 lines.push(currentLine);
                 currentLine = word;
             } else {
-                currentLine = testLine;
+                currentLine = test;
             }
         }
     });
-    
-    lines.push(currentLine);
+
+    if (currentLine) lines.push(currentLine);
     return lines.join("\n");
 };
 
