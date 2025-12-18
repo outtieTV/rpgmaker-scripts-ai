@@ -287,7 +287,6 @@ Scene_Mailbox.prototype.onCommandClaim = function() {
             if (a.type === "armor") $gameParty.gainItem($dataArmors[a.id], n);
         });
         mail.attachmentsClaimed = true;
-        SoundManager.playItem();
     }
     this._cmd.refresh();
     this._cmd.activate();
@@ -340,19 +339,74 @@ Window_MailBody.prototype = Object.create(Window_Base.prototype);
 Window_MailBody.prototype.constructor = Window_MailBody;
 Window_MailBody.prototype.setMail=function(m){this._mail=m;this.refresh();}
 Window_MailBody.prototype.clear=function(){this._mail = null;this.contents.clear();}
-Window_MailBody.prototype.refresh=function(){
+
+Window_MailBody.prototype.refresh = function() {
     this.contents.clear();
-    if(!this._mail) return;
+    if (!this._mail) return;
+    
     let y = 0;
     const lh = this.lineHeight();
+    const padding = 10;
+    const maxWidth = this.contentsWidth();
+
+    // Draw Header (From/Subject)
     this.changeTextColor(ColorManager.systemColor());
-    this.drawText(`From: ${this._mail.sender || "Unknown"}`, 0, y, this.contentsWidth());
+    this.drawText(`From: ${this._mail.sender || "Unknown"}`, 0, y, maxWidth);
     y += lh;
-    this.drawText(`Subject: ${this._mail.subject || "No Subject"}`, 0, y, this.contentsWidth());
+    this.drawText(`Subject: ${this._mail.subject || "No Subject"}`, 0, y, maxWidth);
     y += lh + 10;
-    this.contents.fillRect(0, y - 5, this.contentsWidth(), 2, ColorManager.normalColor());
+    
+    // Horizontal Line
+    this.contents.fillRect(0, y - 5, maxWidth, 2, ColorManager.normalColor());
     this.resetTextColor();
-    this.drawTextEx(this._mail.body || "", 0, y, this.contentsWidth());
+
+    // Process Word Wrapping for Body
+    const rawBody = this._mail.body || "";
+    const wrappedText = this.processWordWrap(rawBody, maxWidth);
+    
+    this.drawTextEx(wrappedText, 0, y);
+};
+
+/**
+ * Basic word-wrap utility for MZ Window_Base
+ */
+Window_MailBody.prototype.processWordWrap = function(text, maxWidth) {
+    const words = text.split(" ");
+    let lines = [];
+    let currentLine = "";
+
+    words.forEach(word => {
+        // Handle manual newlines within the text
+        if (word.includes("\n")) {
+            const parts = word.split("\n");
+            parts.forEach((part, index) => {
+                const testLine = currentLine + (currentLine ? " " : "") + part;
+                if (this.textSizeEx(testLine).width > maxWidth) {
+                    lines.push(currentLine);
+                    currentLine = part;
+                } else {
+                    currentLine = testLine;
+                }
+                if (index < parts.length - 1) {
+                    lines.push(currentLine);
+                    currentLine = "";
+                }
+            });
+        } else {
+            const testLine = currentLine + (currentLine ? " " : "") + word;
+            const testWidth = this.textSizeEx(testLine).width;
+
+            if (testWidth > maxWidth && currentLine !== "") {
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        }
+    });
+    
+    lines.push(currentLine);
+    return lines.join("\n");
 };
 
 // ============================================================================
