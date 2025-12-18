@@ -14,6 +14,33 @@
  * @param Default Region ID
  * @type number
  * @default 10
+ * * @command sendFromFile
+ * @text Send Mail From File
+ * @desc Manually injects mail from a specific JSON file in data/mail/.
+ * @arg fileName
+ * @text File Name
+ * @desc The name of the file (e.g., Special_Event.json).
+ *
+ * @command sendFromJson
+ * @text Send Mail From JSON String
+ * @desc Manually injects mail via a raw JSON string.
+ * @arg jsonString
+ * @text JSON String
+ * @desc The raw JSON data for the mail object.
+ *
+ * @command checkMail
+ * @text Check Mailbox
+ * @desc Manually checks for mail. Can override location parameters.
+ * @arg mapId
+ * @text Map ID
+ * @desc Leave at 0 to use current map.
+ * @type number
+ * @default 0
+ * @arg regionId
+ * @text Region ID
+ * @desc Leave at 0 to use current player region.
+ * @type number
+ * @default 0
  */
 
 const MailboxSystem = {};
@@ -28,32 +55,32 @@ MailboxSystem._pendingMail = [];
 MailboxSystem._cooldown = false;
 
 // ============================================================================
-// LOAD MAIL DATA
+// DATA HANDLING
 // ============================================================================
+
+MailboxSystem.loadJsonFile = function (fileName) {
+    return new Promise(resolve => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", "data/mail/" + fileName);
+        xhr.overrideMimeType("application/json");
+        xhr.onload = function () {
+            if (xhr.status < 400) {
+                try {
+                    resolve(JSON.parse(xhr.responseText));
+                } catch (e) {
+                    console.error("Mailbox JSON parse error:", fileName, e);
+                    resolve(null);
+                }
+            } else resolve(null);
+        };
+        xhr.onerror = () => resolve(null);
+        xhr.send();
+    });
+};
 
 MailboxSystem.loadMailData = function () {
     MailboxSystem._pendingMail = [];
     if (!MailboxSystem.loadJson) return;
-
-    const loadJsonFile = function (fileName) {
-        return new Promise(resolve => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("GET", "data/mail/" + fileName);
-            xhr.overrideMimeType("application/json");
-            xhr.onload = function () {
-                if (xhr.status < 400) {
-                    try {
-                        resolve(JSON.parse(xhr.responseText));
-                    } catch (e) {
-                        console.error("Mailbox JSON parse error:", fileName, e);
-                        resolve(null);
-                    }
-                } else resolve(null);
-            };
-            xhr.onerror = () => resolve(null);
-            xhr.send();
-        });
-    };
 
     if (!$dataMapInfos) {
         const _onLoad = DataManager.onLoad;
@@ -66,36 +93,26 @@ MailboxSystem.loadMailData = function () {
 
     const promises = [];
 
+    // GLOBAL
     promises.push(
-        loadJsonFile("GLOBAL_Mail.json").then(data => {
+        this.loadJsonFile("GLOBAL_Mail.json").then(data => {
             if (!data) return;
             const mails = Array.isArray(data) ? data : (data.mail || []);
-            mails.forEach(mail => {
-                mail.mailId ??= `GLOBAL-${Date.now()}-${Math.random()}`;
-                mail.regionId ??= MailboxSystem.mailboxRegionId;
-                mail.read = false;
-                mail.attachmentsClaimed = false;
-                MailboxSystem._pendingMail.push(mail);
-            });
+            mails.forEach(mail => this.processNewMail(mail, "GLOBAL"));
         })
     );
 
+    // MAP SPECIFIC
     $dataMapInfos.forEach(info => {
         if (!info) return;
         const mapIdPadded = String(info.id).padStart(3, "0");
-        const fileName = `MAP${mapIdPadded}_Mail.json`;
-
         promises.push(
-            loadJsonFile(fileName).then(data => {
+            this.loadJsonFile(`MAP${mapIdPadded}_Mail.json`).then(data => {
                 if (!data) return;
                 const mails = Array.isArray(data) ? data : (data.mail || []);
                 mails.forEach(mail => {
                     mail.mapId ??= info.id;
-                    mail.regionId ??= MailboxSystem.mailboxRegionId;
-                    mail.mailId ??= `MAP${mapIdPadded}-${Date.now()}-${Math.random()}`;
-                    mail.read = false;
-                    mail.attachmentsClaimed = false;
-                    MailboxSystem._pendingMail.push(mail);
+                    this.processNewMail(mail, `MAP${mapIdPadded}`);
                 });
             })
         );
@@ -104,6 +121,14 @@ MailboxSystem.loadMailData = function () {
     Promise.all(promises).then(() => {
         console.log(`Mailbox loaded ${MailboxSystem._pendingMail.length} mail items`);
     });
+};
+
+MailboxSystem.processNewMail = function(mail, prefix) {
+    mail.mailId ??= `${prefix}-${Date.now()}-${Math.random()}`;
+    mail.regionId ??= MailboxSystem.mailboxRegionId;
+    mail.read = false;
+    mail.attachmentsClaimed = false;
+    MailboxSystem._pendingMail.push(mail);
 };
 
 (() => {
@@ -157,35 +182,31 @@ MailboxSystem.checkMailDelivery = function () {
     MailboxSystem._pendingMail = remaining;
 
     delivered.forEach(mail => {
-        if (
-            !$gameSystem.mailbox.deletedMailIds.includes(mail.mailId) &&
-            !$gameSystem.mailbox.inbox.find(m => m.mailId === mail.mailId)
-        ) {
+        if (!$gameSystem.mailbox.deletedMailIds.includes(mail.mailId) &&
+            !$gameSystem.mailbox.inbox.find(m => m.mailId === mail.mailId)) {
             $gameSystem.mailbox.inbox.push(mail);
         }
     });
 };
 
-// ============================================================================
-// REGION TRIGGER
-// ============================================================================
-
-MailboxSystem.openMailboxIfNeeded = function () {
+MailboxSystem.openMailboxIfNeeded = function (targetMapId, targetRegionId) {
     if (MailboxSystem._cooldown || SceneManager._scene instanceof Scene_Mailbox) return;
 
-    const regionId = $gamePlayer.regionId();
+    const mapId = targetMapId || $gameMap.mapId();
+    const regionId = targetRegionId || $gamePlayer.regionId();
+
     if (!regionId) return;
 
     const hasMail = $gameSystem.mailbox.inbox.some(m =>
         m.regionId === regionId &&
-        (!m.mapId || m.mapId === $gameMap.mapId())
+        (!m.mapId || m.mapId === mapId)
     );
 
     if (!hasMail) return;
 
     MailboxSystem._cooldown = true;
     SceneManager.push(Scene_Mailbox);
-    setTimeout(() => MailboxSystem._cooldown = false, 1000); 
+    setTimeout(() => MailboxSystem._cooldown = false, 3000); 
 };
 
 const _Scene_Map_update = Scene_Map.prototype.update;
@@ -207,7 +228,6 @@ Scene_Mailbox.prototype.constructor = Scene_Mailbox;
 
 Scene_Mailbox.prototype.create = function () {
     Scene_MenuBase.prototype.create.call(this);
-
     const listW = Math.floor(Graphics.boxWidth * 0.4);
     const cmdH = 120;
 
@@ -318,41 +338,54 @@ Window_MailCommands.prototype.maxCols = function() { return 3; };
 function Window_MailBody(r){this.initialize(...arguments);}
 Window_MailBody.prototype = Object.create(Window_Base.prototype);
 Window_MailBody.prototype.constructor = Window_MailBody;
-
-Window_MailBody.prototype.setMail=function(m){
-    this._mail=m;
-    this.refresh();
-}
-
-Window_MailBody.prototype.clear=function(){
-    this._mail = null;
-    this.contents.clear();
-}
-
+Window_MailBody.prototype.setMail=function(m){this._mail=m;this.refresh();}
+Window_MailBody.prototype.clear=function(){this._mail = null;this.contents.clear();}
 Window_MailBody.prototype.refresh=function(){
     this.contents.clear();
     if(!this._mail) return;
-
     let y = 0;
     const lh = this.lineHeight();
-    
-    // Draw Header
     this.changeTextColor(ColorManager.systemColor());
     this.drawText(`From: ${this._mail.sender || "Unknown"}`, 0, y, this.contentsWidth());
     y += lh;
     this.drawText(`Subject: ${this._mail.subject || "No Subject"}`, 0, y, this.contentsWidth());
     y += lh + 10;
-    
-    this.drawHorizontalLine(y - 5);
-    
-    // Draw Body
+    this.contents.fillRect(0, y - 5, this.contentsWidth(), 2, ColorManager.normalColor());
     this.resetTextColor();
-    const text = this._mail.body || "";
-    this.drawTextEx(text, 0, y, this.contentsWidth());
+    this.drawTextEx(this._mail.body || "", 0, y, this.contentsWidth());
 };
 
-Window_MailBody.prototype.drawHorizontalLine = function(y) {
-    this.contents.fillRect(0, y, this.contentsWidth(), 2, ColorManager.normalColor());
-};
+// ============================================================================
+// PLUGIN COMMANDS
+// ============================================================================
+
+PluginManager.registerCommand(MailboxSystem.pluginName, "sendFromFile", args => {
+    const fileName = String(args.fileName);
+    MailboxSystem.loadJsonFile(fileName).then(data => {
+        if (!data) return;
+        const mails = Array.isArray(data) ? data : (data.mail || []);
+        mails.forEach(mail => {
+            MailboxSystem.processNewMail(mail, "MANUAL");
+            MailboxSystem.checkMailDelivery();
+        });
+    });
+});
+
+PluginManager.registerCommand(MailboxSystem.pluginName, "sendFromJson", args => {
+    try {
+        const mail = JSON.parse(args.jsonString);
+        MailboxSystem.processNewMail(mail, "INJECT");
+        MailboxSystem.checkMailDelivery();
+    } catch (e) {
+        console.error("Mailbox: Invalid JSON string in sendFromJson command", e);
+    }
+});
+
+PluginManager.registerCommand(MailboxSystem.pluginName, "checkMail", args => {
+    const mapId = Number(args.mapId) || $gameMap.mapId();
+    const regionId = Number(args.regionId) || $gamePlayer.regionId();
+    MailboxSystem.checkMailDelivery();
+    MailboxSystem.openMailboxIfNeeded(mapId, regionId);
+});
 
 window.MailboxSystem = MailboxSystem;
