@@ -1,5 +1,6 @@
 # rpgmaker-scripts
 RPG Maker Scripts, usually MZ.<br />
+These were written by outtieTV, Google Gemini, Duck AI, and ChatGPT.<br />
 <br />
 divide-sheet.py<br />
 Python 3.x<br />
