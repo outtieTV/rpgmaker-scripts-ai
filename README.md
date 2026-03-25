@@ -45,7 +45,7 @@ PicAnchor_MZ_v1.js<br />
 RMMZ plugin that allows pictures to be anchored on the map to mimic objects.<br />
 <br />
 SQL_MZ_v1.js<br />
-RMMZ plugin that allows the developer to connect the player to a SQLite/MS SQL/MySQL server.<br />
+RMMZ plugin that allows the developer to connect the player to a SQLite/MS SQL/MySQL/PostgreSQL server.<br />
 <br />
 SimpleGauge_MZ_v1.js<br />
 RMMZ plugin to test if gauge overlays work.<br />
