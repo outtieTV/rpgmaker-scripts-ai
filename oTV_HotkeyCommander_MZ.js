@@ -188,8 +188,8 @@
         xhr.send();
     }
 
-    // ------------------------------------------------------------------------
-    // 5️⃣  Update loop – check inputs in any scene
+	// ------------------------------------------------------------------------
+    // 5️⃣  Update loop – check inputs (RESTRICTED TO SCENE_MAP ONLY)
     // ------------------------------------------------------------------------
     const _Scene_Base_update = Scene_Base.prototype.update;
     Scene_Base.prototype.update = function () {
@@ -199,6 +199,12 @@
     };
 
     Scene_Base.prototype.checkHotkeyCommander = function () {
+        // FIXED: Only allow hotkeys to trigger if the player is actively on the Map Screen
+        if (SceneManager._scene.constructor !== Scene_Map) return;
+        
+        // FIXED: Don't trigger map hotkeys if an event message window or choice box is active
+        if ($gameMap.isEventRunning() || $gameMessage.isBusy()) return;
+
         if (!activeBindings || activeBindings.length === 0) return;
 
         for (const binding of activeBindings) {
