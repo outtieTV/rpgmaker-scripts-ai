@@ -288,3 +288,44 @@
     Input.keyMapper[68] = 'right'; // D
     Input.keyMapper[83] = 'down';  // S
 })();
+
+// ------------------------------------------------------------------------
+// 7️⃣ Global Escape-to-Close Menu Interceptor
+// ------------------------------------------------------------------------
+(() => {
+
+    const _Scene_Map_update = Scene_Map.prototype.update;
+    Scene_Map.prototype.update = function() {
+        _Scene_Map_update.call(this);
+
+        if ($gameMap.isEventRunning()) return;
+        if ($gameMessage.isBusy()) return;
+
+        if (Input.isTriggered("esc")) {
+            SoundManager.playOk();
+            SceneManager.push(Scene_Menu);
+        }
+    };
+
+    const _Scene_Menu_update = Scene_Menu.prototype.update;
+    Scene_Menu.prototype.update = function() {
+        _Scene_Menu_update.call(this);
+
+        if (Input.isTriggered("esc")) {
+            SoundManager.playCancel();
+            SceneManager.pop();
+        }
+    };
+	
+	const _Scene_MenuBase_update = Scene_MenuBase.prototype.update;
+
+	Scene_MenuBase.prototype.update = function() {
+		_Scene_MenuBase_update.call(this);
+
+		if (Input.isTriggered("esc")) {
+			SoundManager.playCancel();
+			SceneManager.pop();
+		}
+	};
+
+})();
