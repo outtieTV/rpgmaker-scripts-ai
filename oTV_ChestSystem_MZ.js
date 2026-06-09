@@ -31,6 +31,7 @@
  * looping interfaces while standing stationary on the chest tile.
  *
  * All operations print thorough debugging logs directly to the developer console (F8).
+ * Fully compatible with CGMZ_Core and CGMZ Infinite Colors drawing frameworks.
  *
  * @command addChest
  * @text Add Chest
@@ -143,8 +144,8 @@ ChestSystem.loadJsonFile = function() {
             if (xhr.status < 400) {
                 try {
                     const parsedData = JSON.parse(xhr.responseText);
-                    console.log(`[${ChestSystem.pluginName}] File Load Success! Context Payload Recieved:`);
-                    console.dir(parsedData); // Outputs cleanly as an interactive object tree in console
+                    console.log(`[${ChestSystem.pluginName}] File Load Success! Context Payload Received:`);
+                    console.dir(parsedData);
                     resolve(parsedData);
                 } catch(e) {
                     console.error(`[${ChestSystem.pluginName}] File loaded but failed structural JSON verification check:`, e);
@@ -488,7 +489,7 @@ Scene_Chest.prototype.create = function() {
 };
 
 Scene_Chest.prototype.createHelpWindow = function() {
-    const helpH = this.calcWindowHeight(2, false); // Safe native fallback for MZ MenuBase viewports
+    const helpH = this.calcWindowHeight(2, false);
     this._helpWindow = new Window_Help(new Rectangle(0, 0, Graphics.boxWidth, helpH));
     this.addWindow(this._helpWindow);
 };
@@ -593,13 +594,12 @@ Scene_Chest.prototype.showQuantityInput = function(item, max, toChest) {
     this._item = item;
     this._toChest = toChest;
     const rect = this.quantityWindowRect();
-    this._numberWindow = new Window_NumberInput(rect);
     
+    this._numberWindow = new Window_ChestQuantityInput(rect, item, max);
     this.addWindow(this._numberWindow);
-    this._numberWindow.setup(item, 1, max);
+    
     this._numberWindow.setHandler("ok", this.onNumberOk.bind(this));
     this._numberWindow.setHandler("cancel", this.onNumberCancel.bind(this));
-    this._numberWindow.setHelpWindow(this._helpWindow);
     this._numberWindow.activate();
 
     this._partyWindow.deactivate();
@@ -607,13 +607,13 @@ Scene_Chest.prototype.showQuantityInput = function(item, max, toChest) {
 };
 
 Scene_Chest.prototype.quantityWindowRect = function() {
-    const ww = 480;
-    const wh = this.calcWindowHeight(4, true);
+    const ww = 440;
+    const wh = this.calcWindowHeight(3.5, true);
     return new Rectangle((Graphics.boxWidth - ww) / 2, (Graphics.boxHeight - wh) / 2, ww, wh);
 };
 
 Scene_Chest.prototype.onNumberOk = function() {
-    const number = this._numberWindow.number();
+    const number = this._numberWindow.value();
     this.doTransfer(this._item, number, this._toChest);
     this.endNumberInput();
 };
@@ -650,6 +650,126 @@ Scene_Chest.prototype.refreshWindows = function() {
     const chestData = ChestSystem.getChestData(this._chestX, this._chestY);
     this._chestWindow.refresh(chestData);
     this._partyWindow.refresh();
+};
+
+// ============================================================================
+// CUSTOM SELECTION WINDOWS & DIALOG HOOKS (WITH TOUCH/MOUSE INPUTS)
+// ============================================================================
+
+function Window_ChestQuantityInput() {
+    this.initialize(...arguments);
+}
+Window_ChestQuantityInput.prototype = Object.create(Window_Selectable.prototype);
+Window_ChestQuantityInput.prototype.constructor = Window_ChestQuantityInput;
+
+Window_ChestQuantityInput.prototype.initialize = function(rect, item, max) {
+    Window_Selectable.prototype.initialize.call(this, rect);
+    this._item = item;
+    this._max = max;
+    this._value = 1;
+    this.refresh();
+};
+
+Window_ChestQuantityInput.prototype.value = function() {
+    return this._value;
+};
+
+Window_ChestQuantityInput.prototype.refresh = function() {
+    if (this.contents) {
+        this.contents.clear();
+        
+        // Item Header Information
+        this.drawItemName(this._item, 10, 4, this.contentsWidth() - 20);
+        
+        // Quantity Pagination Core
+        const rowY = this.lineHeight() + 12;
+        this.changeTextColor(ColorManager.systemColor());
+        this.drawText("<", 40, rowY, 30, "left");
+        this.changeTextColor(ColorManager.normalColor());
+        
+        const countText = `${this._value} / ${this._max}`;
+        this.drawText(countText, 0, rowY, this.contentsWidth(), "center");
+        
+        this.changeTextColor(ColorManager.systemColor());
+        this.drawText(">", this.contentsWidth() - 70, rowY, 30, "right");
+        this.changeTextColor(ColorManager.normalColor());
+
+        // Buttons Layout Layer Configuration
+        const btnY = (this.lineHeight() * 2) + 24;
+        const btnW = 120;
+        const spacing = 40;
+        const totalW = (btnW * 2) + spacing;
+        const startX = (this.contentsWidth() - totalW) / 2;
+
+        // Save layout rectangles internally for bounding box click verification
+        this._leftArrowRect = new Rectangle(40, rowY, 40, this.lineHeight());
+        this._rightArrowRect = new Rectangle(this.contentsWidth() - 80, rowY, 40, this.lineHeight());
+        this._okButtonRect = new Rectangle(startX, btnY, btnW, this.lineHeight());
+        this._cancelButtonRect = new Rectangle(startX + btnW + spacing, btnY, btnW, this.lineHeight());
+
+        // Paint Interactive Button Frames (Using safe translucent dimColor gradient overlays)
+        this.drawButtonBackground(this._okButtonRect, "OK");
+        this.drawButtonBackground(this._cancelButtonRect, "Cancel");
+    }
+};
+
+Window_ChestQuantityInput.prototype.drawButtonBackground = function(rect, label) {
+    // Patched: Swapped problematic background function call with safe standard dimming colors
+    const c1 = ColorManager.dimColor1();
+    const c2 = ColorManager.dimColor2();
+    this.contents.gradientFillRect(rect.x, rect.y, rect.width, rect.height, c1, c2, false);
+    this.contents.strokeRect(rect.x, rect.y, rect.width, rect.height, ColorManager.normalColor());
+    this.drawText(label, rect.x, rect.y, rect.width, "center");
+};
+
+Window_ChestQuantityInput.prototype.cursorRight = function() {
+    if (this._value < this._max) {
+        this._value++;
+        SoundManager.playCursor();
+        this.refresh();
+    }
+};
+
+Window_ChestQuantityInput.prototype.cursorLeft = function() {
+    if (this._value > 1) {
+        this._value--;
+        SoundManager.playCursor();
+        this.refresh();
+    }
+};
+
+Window_ChestQuantityInput.prototype.update = function() {
+    Window_Selectable.prototype.update.call(this);
+    if (this.active) {
+        if (Input.isRepeated("right")) this.cursorRight();
+        if (Input.isRepeated("left")) this.cursorLeft();
+        this.processTouchInputs();
+    }
+};
+
+Window_ChestQuantityInput.prototype.processTouchInputs = function() {
+    if (TouchInput.isTriggered()) {
+        // Convert screen coordinates into the local window frame space
+        const localX = TouchInput.x - this.x - this.padding;
+        const localY = TouchInput.y - this.y - this.padding;
+
+        if (this.isPointInRect(localX, localY, this._leftArrowRect)) {
+            this.cursorLeft();
+        } else if (this.isPointInRect(localX, localY, this._rightArrowRect)) {
+            this.cursorRight();
+        } else if (this.isPointInRect(localX, localY, this._okButtonRect)) {
+            SoundManager.playOk();
+            this.callOkHandler();
+        } else if (this.isPointInRect(localX, localY, this._cancelButtonRect)) {
+            SoundManager.playCancel();
+            this.callCancelHandler();
+        }
+    }
+};
+
+Window_ChestQuantityInput.prototype.isPointInRect = function(x, y, rect) {
+    if (!rect) return false;
+    return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 };
 
 // ============================================================================
